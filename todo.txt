@@ -1,0 +1,55 @@
+For later:
+- carefully considered protocol max sizes
+- logging
+- name BITS jobs
+- validate download directory path
+- current user access (should this just do things directly rather than go
+  through the task?)
+- check whether the task successfully started
+- check pid of connecting client
+- get rid of catch/unwind stuff around callbacks?
+- source URL checking, or am I punting on this?
+- tests against protocol max size
+- return appropriate errors from commands
+
+Build:
+- integration into build tree
+- config var
+
+Testing:
+- should be able to install/uninstall without Local Service ownership
+- tests for commands (many of these should probably be default skip)
+- HTTP server for the full effect (to avoid depending on an external one, and to be able
+  to fail controlledly)
+
+Support crates:
+- split out?
+- publish?
+- license?
+
+Task:
+- name scheduled task
+- description?
+- pass log directory, download directory prefix, install path hash as args
+  to task (ondemand command-connect etc). Will need escaping. $(Arg0) at the end.
+- pass path to executable as arg to install?
+- verify normal user can't modify the job with access we allow
+
+Priority:
+- auto-priority boost while monitoring
+- look into the defaults
+  - task: when it should run (battery, idleness)
+  - bits: when and on what connection it should run (metered? maybe different when background
+    vs foreground?)
+
+Notify callbacks:
+- refcounting
+- cleanup callbacks on exit
+- log errors returned from callbacks?
+
+Monitor thread (server):
+- track monitor threads by job id
+- how to handle end of job by completion or cancelation, or just disappearing somehow?
+- if another callback is registered, will we be able to detect that and kill of the monitor pipe
+  and thread? Maybe we should, but maybe we shouldn't/can't and the regular timeout updates will
+  be enough.

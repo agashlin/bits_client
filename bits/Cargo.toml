@@ -1,0 +1,26 @@
+[package]
+name = "bits"
+version = "0.1.0"
+authors = ["Adam Gashlin <agashlin@mozilla.com>"]
+license = "MIT/Apache-2.0"
+
+[features]
+status_serde = ["serde", "serde_derive"]
+
+[dependencies]
+comedy = { path = "../comedy" }
+failure = "0.1.4"
+winapi = { version = "0.3.6", features = ["basetsd",
+                                          "bits",
+                                          "bitsmsg",
+                                          "guiddef",
+                                          "minwindef",
+                                          "ntdef",
+                                          "unknwnbase",
+                                          "winerror",
+                                          ] }
+
+wio = "0.2.0"
+
+serde = { version = "1.0.80", optional = true }
+serde_derive = { version = "1.0.80", optional = true }
