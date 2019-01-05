@@ -1,12 +1,21 @@
+extern crate bincode;
+extern crate bits;
+extern crate bits_client;
+extern crate comedy;
 extern crate failure;
-extern crate update_agent;
+extern crate named_pipe;
+extern crate serde;
+extern crate serde_derive;
 
 use std::env;
 use std::process;
 
 use failure::{bail, Error};
-use update_agent::bits_server;
-use update_agent::task;
+
+mod bits_protocol;
+mod bits_server;
+
+use bits_client::task;
 
 fn main() {
     if let Err(err) = entry() {

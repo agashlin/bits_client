@@ -1,23 +1,20 @@
 extern crate bits;
+extern crate bits_client;
 extern crate comedy;
 extern crate failure;
-extern crate named_pipe;
-extern crate update_agent;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::mem;
 use std::process;
 use std::str::FromStr;
 
 use bits::{BG_JOB_STATE_CONNECTING, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR};
 use comedy::guid::Guid;
 use failure::{bail, Error};
-use named_pipe::{PipeAccess, PipeServer, WaitTimeout};
 
-use update_agent::bits_client;
-use update_agent::bits_protocol::*;
-use update_agent::task;
+#[cfg(feature = "external_task")]
+use bits_client::task;
+use bits_client::{BitsClient, BitsMonitorClient};
 
 type Result = std::result::Result<(), Error>;
 
@@ -64,18 +61,27 @@ fn entry() -> Result {
     let cmd = &*args[1].to_string_lossy();
     let cmd_args = &args[2..];
 
+    // TODO: this should be able to do both
+    #[cfg(feature = "external_task")]
+    let mut client = BitsClient::connect_task(&task::task_name())?;
+
+    #[cfg(not(feature = "external_task"))]
+    let _com = comedy::com::InitCom::init_sta();
+    #[cfg(not(feature = "external_task"))]
+    let mut client = BitsClient::new();
+
     match cmd {
         // command line client for testing
         "bits-start" if cmd_args.len() == 2 => {
-            bits_start(&task::task_name(), cmd_args[0].clone(), cmd_args[1].clone())
+            bits_start(&mut client, cmd_args[0].clone(), cmd_args[1].clone())
         }
-        "bits-monitor" if cmd_args.len() == 1 => bits_monitor(&task::task_name(), &cmd_args[0]),
+        "bits-monitor" if cmd_args.len() == 1 => bits_monitor(&mut client, &cmd_args[0]),
         // TODO: some way of testing set update interval
-        "bits-bg" if cmd_args.len() == 1 => bits_bg(&task::task_name(), &cmd_args[0]),
-        "bits-fg" if cmd_args.len() == 1 => bits_fg(&task::task_name(), &cmd_args[0]),
-        "bits-resume" if cmd_args.len() == 1 => bits_resume(&task::task_name(), &cmd_args[0]),
-        "bits-complete" if cmd_args.len() == 1 => bits_complete(&task::task_name(), &cmd_args[0]),
-        "bits-cancel" if cmd_args.len() == 1 => bits_cancel(&task::task_name(), &cmd_args[0]),
+        "bits-bg" if cmd_args.len() == 1 => bits_bg(&mut client, &cmd_args[0]),
+        "bits-fg" if cmd_args.len() == 1 => bits_fg(&mut client, &cmd_args[0]),
+        "bits-resume" if cmd_args.len() == 1 => bits_resume(&mut client, &cmd_args[0]),
+        "bits-complete" if cmd_args.len() == 1 => bits_complete(&mut client, &cmd_args[0]),
+        "bits-cancel" if cmd_args.len() == 1 => bits_cancel(&mut client, &cmd_args[0]),
 
         _ => {
             eprintln!("{}", usage());
@@ -84,71 +90,34 @@ fn entry() -> Result {
     }
 }
 
-fn bits_start(task_name: &OsStr, url: OsString, save_path: OsString) -> Result {
-    let mut command_pipe = bits_client::connect(task_name)?;
-
-    let monitor_pipe = PipeServer::new_inbound(PipeAccess::LocalService)?;
-
-    let command = StartJobCommand {
-        url,
-        save_path,
-        monitor: Some(MonitorConfig {
-            pipe_name: monitor_pipe.name().to_os_string(),
-            interval_millis: 1000,
-        }),
-    };
-
-    let mut out_buf: [u8; MAX_RESPONSE] = unsafe { mem::uninitialized() };
-    let result = bits_client::run_command(&mut command_pipe, command, &mut out_buf)?;
-
+fn bits_start(client: &mut BitsClient, url: OsString, save_path: OsString) -> Result {
+    let result = client.start_job(url, save_path, 1000)?;
     match result {
-        Ok(r) => {
+        Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
-            monitor_loop(monitor_pipe, 1000)?;
+            monitor_loop(monitor_client, 1000)?;
             Ok(())
         }
         Err(e) => bail!("error from server {:?}", e),
     }
 }
 
-fn bits_monitor(task_name: &OsStr, guid: &OsStr) -> Result {
+fn bits_monitor(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
-
-    let mut command_pipe = bits_client::connect(task_name)?;
-
-    let monitor_pipe = PipeServer::new_inbound(PipeAccess::LocalService)?;
-
-    let command = MonitorJobCommand {
-        guid,
-        monitor: MonitorConfig {
-            pipe_name: monitor_pipe.name().to_os_string(),
-            interval_millis: 1000,
-        },
-    };
-
-    let mut out_buf: [u8; MAX_RESPONSE] = unsafe { mem::uninitialized() };
-    let result = bits_client::run_command(&mut command_pipe, command, &mut out_buf)?;
-
+    let result = client.monitor_job(guid, 1000)?;
     match result {
-        Ok(_) => {
+        Ok(monitor_client) => {
             println!("monitor success");
-            monitor_loop(monitor_pipe, 1000)?;
+            monitor_loop(monitor_client, 1000)?;
             Ok(())
         }
         Err(e) => bail!("error from server {:?}", e),
     }
 }
 
-fn monitor_loop(mut monitor_pipe: PipeServer, wait_millis: u32) -> Result {
-    monitor_pipe.connect(WaitTimeout::infinite())?;
-
-    println!("connected to monitor pipe");
-
+fn monitor_loop(mut monitor_client: BitsMonitorClient, wait_millis: u32) -> Result {
     loop {
-        let status = bits_client::get_status(
-            &mut monitor_pipe,
-            WaitTimeout::from_millis(wait_millis * 10).unwrap(),
-        )?;
+        let status = monitor_client.get_status(wait_millis * 10)?;
 
         println!("{:?}", status);
 
@@ -162,63 +131,42 @@ fn monitor_loop(mut monitor_pipe: PipeServer, wait_millis: u32) -> Result {
     Ok(())
 }
 
-fn bits_bg(task_name: &OsStr, guid: &OsStr) -> Result {
-    bits_set_priority(false, task_name, guid)
+fn bits_bg(client: &mut BitsClient, guid: &OsStr) -> Result {
+    bits_set_priority(client, guid, false)
 }
 
-fn bits_fg(task_name: &OsStr, guid: &OsStr) -> Result {
-    bits_set_priority(true, task_name, guid)
+fn bits_fg(client: &mut BitsClient, guid: &OsStr) -> Result {
+    bits_set_priority(client, guid, true)
 }
 
-fn bits_set_priority(foreground: bool, task_name: &OsStr, guid: &OsStr) -> Result {
+fn bits_set_priority(client: &mut BitsClient, guid: &OsStr, foreground: bool) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
-
-    let mut command_pipe = bits_client::connect(task_name)?;
-
-    let command = SetJobPriorityCommand { guid, foreground };
-    let mut out_buf: [u8; MAX_RESPONSE] = unsafe { mem::uninitialized() };
-    match bits_client::run_command(&mut command_pipe, command, &mut out_buf)? {
-        Ok(_) => Ok(()),
+    match client.set_job_priorty(guid, foreground)? {
+        Ok(()) => Ok(()),
         Err(e) => bail!("error from server {:?}", e),
     }
 }
 
-fn bits_resume(task_name: &OsStr, guid: &OsStr) -> Result {
+fn bits_resume(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
-
-    let mut command_pipe = bits_client::connect(task_name)?;
-
-    let command = ResumeJobCommand { guid };
-    let mut out_buf: [u8; MAX_RESPONSE] = unsafe { mem::uninitialized() };
-    match bits_client::run_command(&mut command_pipe, command, &mut out_buf)? {
-        Ok(_) => Ok(()),
+    match client.resume_job(guid)? {
+        Ok(()) => Ok(()),
         Err(e) => bail!("error from server {:?}", e),
     }
 }
 
-fn bits_complete(task_name: &OsStr, guid: &OsStr) -> Result {
+fn bits_complete(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
-
-    let mut command_pipe = bits_client::connect(task_name)?;
-
-    let command = CompleteJobCommand { guid };
-    let mut out_buf: [u8; MAX_RESPONSE] = unsafe { mem::uninitialized() };
-    match bits_client::run_command(&mut command_pipe, command, &mut out_buf)? {
-        Ok(_) => Ok(()),
+    match client.complete_job(guid)? {
+        Ok(()) => Ok(()),
         Err(e) => bail!("error from server {:?}", e),
     }
 }
 
-fn bits_cancel(task_name: &OsStr, guid: &OsStr) -> Result {
+fn bits_cancel(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
-
-    let mut command_pipe = bits_client::connect(task_name)?;
-
-    let command = CancelJobCommand { guid };
-    let mut out_buf: [u8; MAX_RESPONSE] = unsafe { mem::uninitialized() };
-
-    match bits_client::run_command(&mut command_pipe, command, &mut out_buf)? {
-        Ok(_) => Ok(()),
+    match client.cancel_job(guid)? {
+        Ok(()) => Ok(()),
         Err(e) => bail!("error from server {:?}", e),
     }
 }

@@ -1,4 +1,12 @@
-For later:
+In-process:
+- Maybe completely strip out all that unnecessary stuff to reduce review load
+  - named_pipe
+  - task_service
+  - comedy::{bstr, handle?, process, variant}
+- proxy stuff (proxy address, credentials)
+- thread for monitoring (mpsc?)
+
+Misc:
 - carefully considered protocol max sizes
 - logging
 - name BITS jobs
@@ -11,6 +19,9 @@ For later:
 - source URL checking, or am I punting on this?
 - tests against protocol max size
 - return appropriate errors from commands
+- add job enumeration for BackgroundDownloadManager, mostly for cleanup
+  purposes
+- add file enumeration and access for debugging redirects?
 
 Build:
 - integration into build tree
