@@ -1,4 +1,5 @@
 extern crate comedy;
+extern crate variant;
 extern crate winapi;
 extern crate wio;
 
@@ -8,11 +9,10 @@ mod taskschd;
 use std::ptr;
 use std::result;
 
-use comedy::bstr::BStr;
 use comedy::com::{cast, create_instance_inproc_server};
 use comedy::error::{ErrorCode::*, ResultExt as ComicalResultExt};
-use comedy::variant::{variant_bool, Variant};
 use comedy::{com_call, com_call_getter, Error};
+use variant::{BStr, variant_bool, Variant};
 
 use taskschd::{
     IActionCollection, IExecAction, IIdleSettings, IRegisteredTask, IRegistrationInfo,

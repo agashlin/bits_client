@@ -1,42 +1,67 @@
-In-process:
+--- In-process ---
 - Maybe completely strip out all that unnecessary stuff to reduce review load
   - named_pipe
   - task_service
-  - comedy::{bstr, handle?, process, variant}
+  - comedy::{bstr, guid, process, variant}
 - proxy stuff (proxy address, credentials)
-- thread for monitoring (mpsc?)
-
-Misc:
-- carefully considered protocol max sizes
-- logging
+  - this is going to require an interface, or will it be set up by default?
+- command line completion when not running
+  - this should probably just be a tiny exe
+  - should we try to automatically remove/restore this when monitoring?
+- monitor, notify (mpsc?)
 - name BITS jobs
-- validate download directory path
-- current user access (should this just do things directly rather than go
-  through the task?)
-- check whether the task successfully started
-- check pid of connecting client
-- get rid of catch/unwind stuff around callbacks?
-- source URL checking, or am I punting on this?
-- tests against protocol max size
-- return appropriate errors from commands
-- add job enumeration for BackgroundDownloadManager, mostly for cleanup
-  purposes
-- add file enumeration and access for debugging redirects?
 
 Build:
 - integration into build tree
 - config var
 
 Testing:
-- should be able to install/uninstall without Local Service ownership
 - tests for commands (many of these should probably be default skip)
-- HTTP server for the full effect (to avoid depending on an external one, and to be able
-  to fail controlledly)
+- HTTP server for the full effect (to avoid depending on an external one,
+  and to be able to fail controlledly)
 
 Support crates:
 - split out?
 - publish?
+- signing?
 - license?
+- wio?
+
+Misc:
+- return appropriate errors from commands
+- add job enumeration for BackgroundDownloadManager, mostly for cleanup purposes
+- file enumeration and access for debugging redirects?
+
+Priority:
+- auto-priority boost while monitoring
+- look into the defaults
+  - bits: when and on what connection it should run (metered? maybe different when background
+    vs foreground?)
+
+Notify callbacks:
+- refcounting
+- cleanup callbacks on exit
+- log errors returned from callbacks?
+- MTA in Firefox... how do?
+
+Monitor thread (server):
+- track monitor threads by job id
+- how to handle end of job by completion or cancelation, or just disappearing somehow?
+- if another callback is registered, will we be able to detect that and kill off the monitor pipe
+  and thread? Maybe we should, but maybe we shouldn't/can't and the regular timeout updates will
+  be enough.
+
+--- Separate task (for Local Service ownership) ---
+
+Misc:
+- carefully considered protocol max sizes
+- logging
+- validate download directory path
+- check whether the task successfully started
+- check pid of connecting client
+- get rid of catch/unwind stuff around callbacks?
+- source URL checking, or am I punting on this?
+- tests against protocol max size
 
 Task:
 - name scheduled task
@@ -45,22 +70,8 @@ Task:
   to task (ondemand command-connect etc). Will need escaping. $(Arg0) at the end.
 - pass path to executable as arg to install?
 - verify normal user can't modify the job with access we allow
-
-Priority:
-- auto-priority boost while monitoring
 - look into the defaults
   - task: when it should run (battery, idleness)
-  - bits: when and on what connection it should run (metered? maybe different when background
-    vs foreground?)
 
-Notify callbacks:
-- refcounting
-- cleanup callbacks on exit
-- log errors returned from callbacks?
-
-Monitor thread (server):
-- track monitor threads by job id
-- how to handle end of job by completion or cancelation, or just disappearing somehow?
-- if another callback is registered, will we be able to detect that and kill of the monitor pipe
-  and thread? Maybe we should, but maybe we shouldn't/can't and the regular timeout updates will
-  be enough.
+Testing:
+- should be able to install/uninstall without Local Service ownership

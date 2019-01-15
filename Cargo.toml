@@ -1,20 +1,16 @@
 [package]
-name = "update_agent"
+name = "bits_client"
 version = "0.1.0"
 authors = ["Adam Gashlin <agashlin@mozilla.com>"]
 license = "MPL-2.0"
 
-[lib]
-path = "src/bits_client.rs"
-name = "bits_client"
-
 [features]
-external_task = ["bincode", "bits/status_serde", "comedy/guid_serde", "named_pipe", "serde", "serde_derive", "task_service"]
-
-[[bin]]
-path = "src/main.rs"
-name = "update_agent"
-required-features = ["external_task"]
+local_service_task = ["bincode",
+                      "bits/status_serde",
+                      "named_pipe",
+                      "serde",
+                      "serde_derive",
+                      "task_service"]
 
 [profile.dev]
 panic = "abort"
@@ -26,12 +22,10 @@ panic = "abort"
 bits = { path = "./bits" }
 comedy = { path = "./comedy" }
 failure = "0.1.4"
+guid_win = { path = "./guid_win" }
 
 bincode = { version = "1.0.1", optional = true }
 named_pipe = { path = "./named_pipe", optional = true }
 serde = { version = "1.0.80", optional = true }
 serde_derive = { version = "1.0.80", optional = true }
 task_service = { path = "./task_service", optional = true }
-
-[dev-dependencies]
-winapi = { version = "0.3.6", features = [ "bits" ] }

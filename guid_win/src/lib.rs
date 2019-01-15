@@ -1,9 +1,15 @@
+extern crate comedy;
+extern crate winapi;
+extern crate wio;
+
 use std::ffi::OsString;
 use std::fmt::{Debug, Display, Error, Formatter, Result};
 use std::iter;
 use std::mem;
 use std::result;
 use std::str::FromStr;
+
+use comedy::check_succeeded;
 
 use winapi::ctypes;
 use winapi::shared::guiddef::GUID;
@@ -12,8 +18,6 @@ use wio::wide::{FromWide, ToWide};
 
 #[cfg(feature = "guid_serde")]
 use serde_derive::{Deserialize, Serialize};
-
-use check_succeeded;
 
 const GUID_STRING_CHARACTERS: usize = 38;
 
@@ -78,7 +82,7 @@ impl Display for Guid {
 }
 
 impl FromStr for Guid {
-    type Err = ::error::Error;
+    type Err = comedy::error::Error;
 
     fn from_str(s: &str) -> result::Result<Self, Self::Err> {
         let mut guid = unsafe { mem::uninitialized() };

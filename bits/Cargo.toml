@@ -10,6 +10,7 @@ status_serde = ["serde", "serde_derive"]
 [dependencies]
 comedy = { path = "../comedy" }
 failure = "0.1.4"
+guid_win = { path = "../guid_win" }
 winapi = { version = "0.3.6", features = ["basetsd",
                                           "bits",
                                           "bitsmsg",

@@ -2,6 +2,7 @@ extern crate bits;
 extern crate bits_client;
 extern crate comedy;
 extern crate failure;
+extern crate guid_win;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -9,10 +10,10 @@ use std::process;
 use std::str::FromStr;
 
 use bits::{BG_JOB_STATE_CONNECTING, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR};
-use comedy::guid::Guid;
 use failure::{bail, Error};
+use guid_win::Guid;
 
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 use bits_client::task;
 use bits_client::{BitsClient, BitsMonitorClient};
 
@@ -36,10 +37,12 @@ const EXE_NAME: &'static str = "test_client";
 fn usage() -> String {
     format!(
         concat!(
-            "Usage {0} <command> [args...]\n",
+            "Usage {0} <command> ",
+            "[local-service] ",
+            "[args...]\n",
             "Commands:\n",
             "  bits-start <URL> <local file>\n",
-            "  bits-monitor <GUID> <millseconds delay>\n",
+            "  bits-monitor <GUID>\n",
             "  bits-bg <GUID>\n",
             "  bits-fg <GUID>\n",
             "  bits-resume <GUID>\n",
@@ -51,7 +54,19 @@ fn usage() -> String {
 }
 
 fn entry() -> Result {
-    let args: Vec<_> = env::args_os().collect();
+    #[allow(unused_mut)]
+    let mut args: Vec<_> = env::args_os().collect();
+
+    let mut client = match () {
+        #[cfg(features = "local_service_task")]
+        _ if args.len() >= 1 && &*args[1].to_string_lossy() == "local-service" => {
+            args.remove(1);
+            BitsClient::connect_task(&task::task_name())?
+        }
+        _ => {
+            BitsClient::new(comedy::com::InitCom::init_sta()?)
+        }
+    };
 
     if args.len() < 2 {
         eprintln!("{}", usage());
@@ -60,15 +75,6 @@ fn entry() -> Result {
 
     let cmd = &*args[1].to_string_lossy();
     let cmd_args = &args[2..];
-
-    // TODO: this should be able to do both
-    #[cfg(feature = "external_task")]
-    let mut client = BitsClient::connect_task(&task::task_name())?;
-
-    #[cfg(not(feature = "external_task"))]
-    let _com = comedy::com::InitCom::init_sta();
-    #[cfg(not(feature = "external_task"))]
-    let mut client = BitsClient::new();
 
     match cmd {
         // command line client for testing

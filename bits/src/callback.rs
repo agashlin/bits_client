@@ -1,6 +1,6 @@
 use std::panic::{catch_unwind, RefUnwindSafe};
 
-use comedy::guid::Guid;
+use guid_win::Guid;
 use winapi::ctypes::c_void;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::DWORD;

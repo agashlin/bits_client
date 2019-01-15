@@ -20,7 +20,7 @@ impl Handle {
     /// `h` should be the only copy of the handle. `GetLastError` is called to
     /// return an error, so the last Windows API called should have been what produced
     /// the invalid handle.
-    pub unsafe fn wrap(h: HANDLE) -> Result<Handle, DWORD> {
+    pub unsafe fn wrap_valid(h: HANDLE) -> Result<Handle, DWORD> {
         if h == INVALID_HANDLE_VALUE {
             Err(GetLastError())
         } else {
@@ -61,11 +61,11 @@ impl Drop for Handle {
 }
 
 #[macro_export]
-macro_rules! call_handle_getter {
+macro_rules! call_valid_handle_getter {
     ($f:ident ( $($arg:expr),* )) => {
         {
             use $crate::error::{Error, ErrorCode, FileLine};
-            $crate::handle::Handle::wrap($f($($arg),*))
+            $crate::handle::Handle::wrap_valid($f($($arg),*))
                 .map_err(|rc| Error {
                     code: Some(ErrorCode::LastError(rc)),
                     function: Some(stringify!($f)),
@@ -76,7 +76,7 @@ macro_rules! call_handle_getter {
 
     // support for trailing comma in argument list
     ($f:ident ( $($arg:expr),+ , )) => {
-        $crate::call_handle_getter!($f($($arg),*))
+        $crate::call_valid_handle_getter!($f($($arg),*))
     };
 }
 

@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::result;
 
 use comedy::handle::{HLocal, Handle};
-use comedy::{call_handle_getter, check_true};
+use comedy::{call_valid_handle_getter, check_true};
 
 use failure::Fail;
 
@@ -285,7 +285,7 @@ fn new_pipe_impl(
     };
 
     Ok((pipe_name, unsafe {
-        call_handle_getter!(CreateNamedPipeW(
+        call_valid_handle_getter!(CreateNamedPipeW(
             pipe_path.as_ptr(),
             open_mode,
             pipe_mode,
@@ -351,7 +351,7 @@ fn open_pipe_impl(name: &OsStr, desired_access: DWORD) -> result::Result<Handle,
     let pipe_path = format_local_pipe_path(name).to_wide_null();
 
     unsafe {
-        call_handle_getter!(CreateFileW(
+        call_valid_handle_getter!(CreateFileW(
             pipe_path.as_ptr(),
             desired_access,
             0,               // dwShareMode

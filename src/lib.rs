@@ -1,20 +1,20 @@
-#[cfg(feature = "external_task")]
-extern crate bincode;
 extern crate bits;
 extern crate comedy;
 extern crate failure;
-#[cfg(feature = "external_task")]
+extern crate guid_win;
+
+#[cfg(feature = "local_service_task")]
+extern crate bincode;
+#[cfg(feature = "local_service_task")]
 extern crate named_pipe;
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 extern crate serde;
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 extern crate serde_derive;
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 extern crate task_service;
 
 pub mod bits_protocol;
-#[cfg(feature = "external_task")]
-pub mod task;
 
 use std::ffi;
 use std::thread;
@@ -22,12 +22,13 @@ use std::time::Duration;
 
 use bits::status::BitsJobStatus;
 use bits::{BackgroundCopyManager, BitsJob, BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_NORMAL};
-use comedy::guid::Guid;
+use comedy::com::InitCom;
 use failure::Error;
+use guid_win::Guid;
 
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 use bincode::{deserialize, serialize};
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 use named_pipe::{PipeAccess, PipeServer, WaitTimeout};
 
 use bits_protocol::*;
@@ -39,19 +40,19 @@ use bits_protocol::*;
 // server creates the pipe.
 
 pub enum BitsClient {
-    #[cfg(feature = "external_task")]
+    #[cfg(feature = "local_service_task")]
     Task(PipeServer),
-    Internal(),
+    Internal(InitCom),
 }
 use BitsClient::*;
 
-// TODO needs the rest of the args
 impl BitsClient {
-    pub fn new() -> BitsClient {
-        BitsClient::Internal()
+    pub fn new(com_inited: InitCom) -> BitsClient {
+        BitsClient::Internal(com_inited)
     }
 
-    #[cfg(feature = "external_task")]
+    // TODO needs the rest of the args
+    #[cfg(feature = "local_service_task")]
     pub fn connect_task(task_name: &ffi::OsStr) -> Result<BitsClient, Error> {
         use failure::ensure;
 
@@ -61,7 +62,7 @@ impl BitsClient {
             // Start the task, which will connect back to the pipe for commands.
             let mut arg = ffi::OsString::from("command-connect ");
             arg.push(pipe.name());
-            let _running_task = task::run_on_demand(task_name, arg.as_os_str())?;
+            let _running_task = bits_server::task::run_on_demand(task_name, arg.as_os_str())?;
             // TODO: wait for running task to start running?, get pid?
         }
 
@@ -92,7 +93,7 @@ impl BitsClient {
         monitor_interval_millis: u32,
     ) -> Result<Result<(StartJobSuccess, BitsMonitorClient), StartJobFailure>, Error> {
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             Task(ref mut pipe) => {
                 let mut monitor_pipe = PipeServer::new_inbound(PipeAccess::LocalService)?;
 
@@ -116,17 +117,14 @@ impl BitsClient {
                     Err(reply.unwrap_err())
                 })
             }
-            Internal() => Ok((move || {
-                // TODO these chunks need to be exported to bits_cmd or something for use in
-                // common with bits_server, this is where all the specific error generation
-                // can be put (bits crate also needs to start returning comedy errors)
+            Internal(_) => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 // TODO determine name
                 let mut job = bcm.create_job(&ffi::OsString::from("JOBBO"))?;
                 job.add_file(&url, &save_path)?;
                 job.resume()?;
 
-                // TODO setup monitor callbacks?
+                // TODO setup monitor callbacks
                 Ok((
                     StartJobSuccess { guid: job.guid()? },
                     BitsMonitorClient::Internal((job, monitor_interval_millis)),
@@ -142,7 +140,7 @@ impl BitsClient {
         interval_millis: u32,
     ) -> Result<Result<BitsMonitorClient, MonitorJobFailure>, Error> {
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             Task(ref mut pipe) => {
                 let mut monitor_pipe = PipeServer::new_inbound(PipeAccess::LocalService)?;
 
@@ -165,7 +163,7 @@ impl BitsClient {
                     Err(reply.unwrap_err())
                 })
             }
-            Internal() => Ok((move || {
+            Internal(_) => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let job = bcm.find_job_by_guid(&guid)?.unwrap();
 
@@ -177,9 +175,9 @@ impl BitsClient {
 
     pub fn resume_job(&mut self, guid: Guid) -> Result<Result<(), ResumeJobFailure>, Error> {
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             Task(ref mut pipe) => run_command(pipe, ResumeJobCommand { guid }),
-            Internal() => Ok((move || {
+            Internal(_) => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.resume()?;
@@ -195,9 +193,9 @@ impl BitsClient {
         foreground: bool,
     ) -> Result<Result<(), SetJobPriorityFailure>, Error> {
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             Task(ref mut pipe) => run_command(pipe, SetJobPriorityCommand { guid, foreground }),
-            Internal() => Ok((move || {
+            Internal(_) => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.set_priority(if foreground {
@@ -217,7 +215,7 @@ impl BitsClient {
         interval_millis: u32,
     ) -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             Task(ref mut pipe) => run_command(
                 pipe,
                 SetUpdateIntervalCommand {
@@ -225,7 +223,7 @@ impl BitsClient {
                     interval_millis,
                 },
             ),
-            Internal() => {
+            Internal(_) => {
                 // TODO: set up a registry of monitors within the client, and have the monitor
                 // listen to an mpsc that can consume everything
                 let _guid = guid;
@@ -237,9 +235,9 @@ impl BitsClient {
 
     pub fn complete_job(&mut self, guid: Guid) -> Result<Result<(), CompleteJobFailure>, Error> {
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             Task(ref mut pipe) => run_command(pipe, CompleteJobCommand { guid }),
-            Internal() => Ok((move || {
+            Internal(_) => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.complete()?;
@@ -251,9 +249,9 @@ impl BitsClient {
 
     pub fn cancel_job(&mut self, guid: Guid) -> Result<Result<(), CancelJobFailure>, Error> {
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             Task(ref mut pipe) => run_command(pipe, CancelJobCommand { guid }),
-            Internal() => Ok((move || {
+            Internal(_) => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.cancel()?;
@@ -264,7 +262,7 @@ impl BitsClient {
     }
 }
 
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 fn run_command<T>(pipe: &mut PipeServer, cmd: T) -> Result<Result<T::Success, T::Failure>, Error>
 where
     T: CommandType,
@@ -285,7 +283,7 @@ where
 }
 
 pub enum BitsMonitorClient {
-    #[cfg(feature = "external_task")]
+    #[cfg(feature = "local_service_task")]
     Task(PipeServer),
     Internal((BitsJob, u32)),
 }
@@ -295,7 +293,7 @@ impl BitsMonitorClient {
         use failure::bail;
 
         match self {
-            #[cfg(feature = "external_task")]
+            #[cfg(feature = "local_service_task")]
             BitsMonitorClient::Task(ref mut pipe) => {
                 let mut out_buf: [u8; MAX_RESPONSE] = unsafe { std::mem::uninitialized() };
                 Ok(deserialize(pipe.read(

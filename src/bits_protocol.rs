@@ -1,12 +1,13 @@
 use std::ffi::OsString;
 
-use comedy::guid::Guid;
-#[cfg(feature = "external_task")]
-use serde::de::DeserializeOwned;
-#[cfg(feature = "external_task")]
-use serde::Serialize;
-#[cfg(feature = "external_task")]
-use serde_derive::{Deserialize, Serialize};
+use guid_win::Guid;
+#[cfg(feature = "local_service_task")]
+use {serde::de::DeserializeOwned, serde::Serialize, serde_derive::{Deserialize, Serialize}};
+
+#[cfg(feature = "local_service_task")]
+pub fn task_name() -> OsString {
+    OsString::from("FOOOO")
+}
 
 type HRESULT = i32;
 
@@ -18,7 +19,7 @@ pub const PROTOCOL_VERSION: u8 = 0;
 
 // Any command
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum Command {
     StartJob(StartJobCommand),
     MonitorJob(MonitorJobCommand),
@@ -29,13 +30,13 @@ pub enum Command {
     CancelJob(CancelJobCommand),
 }
 
-#[cfg(feature = "external_task")]
+#[cfg(feature = "local_service_task")]
 pub trait CommandType: DeserializeOwned + Serialize {
     type Success: DeserializeOwned + Serialize;
     type Failure: DeserializeOwned + Serialize;
     fn new(command: Self) -> Command;
 }
-#[cfg(not(feature = "external_task"))]
+#[cfg(not(feature = "local_service_task"))]
 pub trait CommandType {
     type Success;
     type Failure;
@@ -43,7 +44,7 @@ pub trait CommandType {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct MonitorConfig {
     pub pipe_name: OsString,
     pub interval_millis: u32,
@@ -51,7 +52,7 @@ pub struct MonitorConfig {
 
 // Start Job
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct StartJobCommand {
     pub url: OsString,
     pub save_path: OsString,
@@ -59,13 +60,13 @@ pub struct StartJobCommand {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct StartJobSuccess {
     pub guid: Guid,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum StartJobFailure {
     ArgumentValidation(String),
     Create(HRESULT),
@@ -86,14 +87,14 @@ impl CommandType for StartJobCommand {
 
 // Monitor Job
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct MonitorJobCommand {
     pub guid: Guid,
     pub monitor: MonitorConfig,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum MonitorJobFailure {
     ArgumentValidation(String),
     NotFound,
@@ -112,13 +113,13 @@ impl CommandType for MonitorJobCommand {
 
 // Resume Job
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct ResumeJobCommand {
     pub guid: Guid,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum ResumeJobFailure {
     NotFound,
     GetJob(HRESULT),
@@ -137,14 +138,14 @@ impl CommandType for ResumeJobCommand {
 
 // Set Job Priority
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct SetJobPriorityCommand {
     pub guid: Guid,
     pub foreground: bool,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum SetJobPriorityFailure {
     NotFound,
     GetJob(HRESULT),
@@ -163,14 +164,14 @@ impl CommandType for SetJobPriorityCommand {
 
 // Set Update Interval
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct SetUpdateIntervalCommand {
     pub guid: Guid,
     pub interval_millis: u32,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum SetUpdateIntervalFailure {
     ArgumentValidation(String),
     NotFound,
@@ -190,13 +191,13 @@ impl CommandType for SetUpdateIntervalCommand {
 
 // Complete Job
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct CompleteJobCommand {
     pub guid: Guid,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum CompleteJobFailure {
     NotFound,
     GetJob(HRESULT),
@@ -216,13 +217,13 @@ impl CommandType for CompleteJobCommand {
 
 // Cancel Job
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub struct CancelJobCommand {
     pub guid: Guid,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "external_task", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "local_service_task", derive(Deserialize, Serialize))]
 pub enum CancelJobFailure {
     NotFound,
     GetJob(HRESULT),

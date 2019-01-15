@@ -1,22 +1,15 @@
 use std::ffi::OsString;
 use std::result::Result;
 
-use comedy::bstr::BStr;
 use comedy::com::InitCom;
 use comedy::process::current_process_image_name;
 use failure::{bail, Error};
-
 use task_service::{InstancesPolicy, TaskService};
 
-pub fn task_name() -> OsString {
-    OsString::from("FOOOO")
-}
-
-pub fn install() -> Result<(), Error> {
+pub fn install(task_name: OsString) -> Result<(), Error> {
     let _com_inited = InitCom::init_sta()?;
 
     // TODO name from install path hash
-    let task_name = task_name();
     let command_line = OsString::from("ondemand $(Arg0)");
 
     // TODO this should be an arg?
@@ -72,8 +65,8 @@ pub fn uninstall() -> Result<(), Error> {
 
 pub fn run_on_demand<T, U>(task_name: T, arg: U) -> Result<(), Error>
 where
-    T: Into<BStr>,
-    U: Into<BStr>,
+    T: OsStr,
+    U: OsStr,
 {
     let _com_inited = InitCom::init_sta()?;
 

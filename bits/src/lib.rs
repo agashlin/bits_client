@@ -1,5 +1,6 @@
 extern crate comedy;
 extern crate failure;
+extern crate guid_win;
 extern crate winapi;
 extern crate wio;
 
@@ -17,13 +18,13 @@ use std::result;
 
 use comedy::com::create_instance_local_server;
 use comedy::error::{ErrorCode, ResultExt};
-use comedy::guid::Guid;
 use comedy::{com_call, com_call_getter};
 use failure::Error;
+use guid_win::Guid;
 use winapi::um::bits::{
     IBackgroundCopyCallback, IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager,
     BG_JOB_PRIORITY, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
-    BG_NOTIFY_JOB_TRANSFERRED,
+    BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
@@ -31,7 +32,7 @@ use winapi::RIDL;
 use wio::com::ComPtr;
 use wio::wide::ToWide;
 
-use status::{BitsJobError, BitsJobStatus};
+use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
 
 // reexport anything needed by clients here
 pub use winapi::um::bits::{
@@ -119,7 +120,7 @@ impl BitsJob {
     }
 
     // TODO
-    //fn set_proxy()
+    //pub fn set_proxy()
 
     pub fn set_priority(&mut self, priority: BG_JOB_PRIORITY) -> Result<()> {
         unsafe { com_call!(self.0, IBackgroundCopyJob::SetPriority(priority)) }?;
@@ -211,7 +212,16 @@ where {
 
         Ok(BitsJobStatus {
             state,
-            progress,
+            progress: BitsJobProgress {
+                total_bytes: if progress.BytesTotal == BG_SIZE_UNKNOWN {
+                    None
+                } else {
+                    Some(progress.BytesTotal)
+                },
+                transferred_bytes: progress.BytesTransferred,
+                total_files: progress.FilesTotal,
+                transferred_files: progress.FilesTransferred,
+            },
             error_count,
             error: if state == BG_JOB_STATE_ERROR || state == BG_JOB_STATE_TRANSIENT_ERROR {
                 let error_obj =

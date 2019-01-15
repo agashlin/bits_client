@@ -1,3 +1,5 @@
+extern crate winapi;
+
 use std::default::Default;
 use std::marker::PhantomData;
 use winapi::shared::wtypes::{
@@ -5,7 +7,9 @@ use winapi::shared::wtypes::{
 };
 use winapi::um::oaidl::{VARIANT_n3, __tagVARIANT, VARIANT};
 
-use bstr::BStr;
+pub mod bstr;
+
+pub use bstr::BStr;
 
 pub const VARIANT_TRUE: VARIANT_BOOL = -1;
 pub const VARIANT_FALSE: VARIANT_BOOL = 0;
