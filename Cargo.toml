@@ -4,14 +4,6 @@ version = "0.1.0"
 authors = ["Adam Gashlin <agashlin@mozilla.com>"]
 license = "MPL-2.0"
 
-[features]
-local_service_task = ["bincode",
-                      "bits/status_serde",
-                      "named_pipe",
-                      "serde",
-                      "serde_derive",
-                      "task_service"]
-
 [profile.dev]
 panic = "abort"
 
@@ -23,9 +15,3 @@ bits = { path = "./bits" }
 comedy = { path = "./comedy" }
 failure = "0.1.4"
 guid_win = { path = "./guid_win" }
-
-bincode = { version = "1.0.1", optional = true }
-named_pipe = { path = "./named_pipe", optional = true }
-serde = { version = "1.0.80", optional = true }
-serde_derive = { version = "1.0.80", optional = true }
-task_service = { path = "./task_service", optional = true }

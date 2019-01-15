@@ -13,8 +13,6 @@ use bits::{BG_JOB_STATE_CONNECTING, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRAN
 use failure::{bail, Error};
 use guid_win::Guid;
 
-#[cfg(feature = "local_service_task")]
-use bits_client::task;
 use bits_client::{BitsClient, BitsMonitorClient};
 
 type Result = std::result::Result<(), Error>;
@@ -58,11 +56,6 @@ fn entry() -> Result {
     let mut args: Vec<_> = env::args_os().collect();
 
     let mut client = match () {
-        #[cfg(features = "local_service_task")]
-        _ if args.len() >= 1 && &*args[1].to_string_lossy() == "local-service" => {
-            args.remove(1);
-            BitsClient::connect_task(&task::task_name())?
-        }
         _ => {
             BitsClient::new(comedy::com::InitCom::init_sta()?)
         }
