@@ -56,9 +56,7 @@ fn entry() -> Result {
     let mut args: Vec<_> = env::args_os().collect();
 
     let mut client = match () {
-        _ => {
-            BitsClient::new(comedy::com::InitCom::init_sta()?)
-        }
+        _ => BitsClient::new(comedy::com::InitCom::init_sta()?),
     };
 
     if args.len() < 2 {

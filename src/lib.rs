@@ -24,16 +24,14 @@ use bits_protocol::*;
 // server creates the pipe.
 
 pub enum BitsClient {
-    Internal {
-        com: InitCom
-    }
+    Internal { com: InitCom },
 }
 
 use BitsClient::*;
 
 impl BitsClient {
     pub fn new(com: InitCom) -> BitsClient {
-        BitsClient::Internal{ com }
+        BitsClient::Internal { com }
     }
 
     pub fn start_job(
@@ -43,7 +41,7 @@ impl BitsClient {
         monitor_interval_millis: u32,
     ) -> Result<Result<(StartJobSuccess, BitsMonitorClient), StartJobFailure>, Error> {
         match self {
-            Internal{..} => Ok((move || {
+            Internal { .. } => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 // TODO determine name
                 let mut job = bcm.create_job(&ffi::OsString::from("JOBBO"))?;
@@ -55,7 +53,7 @@ impl BitsClient {
                     StartJobSuccess { guid: job.guid()? },
                     BitsMonitorClient::Internal {
                         job,
-                        interval_millis: monitor_interval_millis
+                        interval_millis: monitor_interval_millis,
                     },
                 ))
             })()
@@ -69,11 +67,14 @@ impl BitsClient {
         interval_millis: u32,
     ) -> Result<Result<BitsMonitorClient, MonitorJobFailure>, Error> {
         match self {
-            Internal{..} => Ok((move || {
+            Internal { .. } => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let job = bcm.find_job_by_guid(&guid)?.unwrap();
 
-                Ok(BitsMonitorClient::Internal{ job, interval_millis })
+                Ok(BitsMonitorClient::Internal {
+                    job,
+                    interval_millis,
+                })
             })()
             .map_err(|e: Error| MonitorJobFailure::Other(e.to_string()))),
         }
@@ -81,7 +82,7 @@ impl BitsClient {
 
     pub fn resume_job(&mut self, guid: Guid) -> Result<Result<(), ResumeJobFailure>, Error> {
         match self {
-            Internal{..} => Ok((move || {
+            Internal { .. } => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.resume()?;
@@ -97,7 +98,7 @@ impl BitsClient {
         foreground: bool,
     ) -> Result<Result<(), SetJobPriorityFailure>, Error> {
         match self {
-            Internal{..} => Ok((move || {
+            Internal { .. } => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.set_priority(if foreground {
@@ -117,7 +118,7 @@ impl BitsClient {
         interval_millis: u32,
     ) -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
         match self {
-            Internal{..} => {
+            Internal { .. } => {
                 // TODO: set up a registry of monitors within the client, and have the monitor
                 // listen to an mpsc that can consume everything
                 let _guid = guid;
@@ -129,7 +130,7 @@ impl BitsClient {
 
     pub fn complete_job(&mut self, guid: Guid) -> Result<Result<(), CompleteJobFailure>, Error> {
         match self {
-            Internal{..} => Ok((move || {
+            Internal { .. } => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.complete()?;
@@ -141,7 +142,7 @@ impl BitsClient {
 
     pub fn cancel_job(&mut self, guid: Guid) -> Result<Result<(), CancelJobFailure>, Error> {
         match self {
-            Internal{..} => Ok((move || {
+            Internal { .. } => Ok((move || {
                 let bcm = BackgroundCopyManager::connect()?;
                 let mut job = bcm.find_job_by_guid(&guid)?.unwrap();
                 job.cancel()?;
@@ -153,10 +154,7 @@ impl BitsClient {
 }
 
 pub enum BitsMonitorClient {
-    Internal {
-        job: BitsJob,
-        interval_millis: u32,
-    }
+    Internal { job: BitsJob, interval_millis: u32 },
 }
 
 impl BitsMonitorClient {
@@ -164,7 +162,10 @@ impl BitsMonitorClient {
         use failure::bail;
 
         match self {
-            BitsMonitorClient::Internal{ job, interval_millis } => {
+            BitsMonitorClient::Internal {
+                job,
+                interval_millis,
+            } => {
                 // TODO mpsc
                 let timeout = Duration::from_millis(timeout_millis as u64);
                 let interval = Duration::from_millis(*interval_millis as u64);
