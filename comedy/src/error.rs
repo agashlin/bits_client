@@ -15,6 +15,8 @@ pub struct Error {
     pub file_line: Option<FileLine>,
 }
 
+use self::ErrorCode::*;
+
 impl Error {
     pub fn function(self, function: &'static str) -> Error {
         Error {
@@ -29,6 +31,38 @@ impl Error {
             ..self
         }
     }
+
+    pub fn is_nullptr(&self) -> bool {
+        if let Some(NullPtr) = self.code {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_rc(&self) -> Option<DWORD> {
+        if let Some(Rc(rc)) = self.code {
+            Some(rc)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_last_error(&self) -> Option<DWORD> {
+        if let Some(LastError(last_err)) = self.code {
+            Some(last_err)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_hresult(&self) -> Option<HRESULT> {
+        if let Some(HResult(hr)) = self.code {
+            Some(hr)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -38,7 +72,6 @@ pub enum ErrorCode {
     LastError(DWORD),
     HResult(HRESULT),
 }
-use self::ErrorCode::*;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct FileLine(pub &'static str, pub u32);
@@ -81,7 +114,31 @@ pub trait ResultExt<T> {
 
     fn allow_err(self, code: ErrorCode, replacement: T) -> Result<T>;
 
+    fn allow_nullptr(self, replacement: T) -> Result<T>;
+
+    fn allow_rc(self, rc: DWORD, replacement: T) -> Result<T>;
+
+    fn allow_last_error(self, last_err: DWORD, replacement: T) -> Result<T>;
+
+    fn allow_hresult(self, hr: HRESULT, replacement: T) -> Result<T>;
+
     fn allow_err_with<F>(self, code: ErrorCode, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T;
+
+    fn allow_nullptr_with<F>(self, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T;
+
+    fn allow_rc_with<F>(self, rc: DWORD, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T;
+
+    fn allow_last_error_with<F>(self, last_err: DWORD, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T;
+
+    fn allow_hresult_with<F>(self, hr: HRESULT, replacement: F) -> Result<T>
     where
         F: FnOnce() -> T;
 }
@@ -103,6 +160,22 @@ impl<T> ResultExt<T> for Result<T> {
         }
     }
 
+    fn allow_nullptr(self, replacement: T) -> Result<T> {
+        self.allow_err(NullPtr, replacement)
+    }
+
+    fn allow_rc(self, rc: DWORD, replacement: T) -> Result<T> {
+        self.allow_err(Rc(rc), replacement)
+    }
+
+    fn allow_last_error(self, last_err: DWORD, replacement: T) -> Result<T> {
+        self.allow_err(LastError(last_err), replacement)
+    }
+
+    fn allow_hresult(self, hr: HRESULT, replacement: T) -> Result<T> {
+        self.allow_err(HResult(hr), replacement)
+    }
+
     fn allow_err_with<F>(self, code: ErrorCode, replacement: F) -> Result<T>
     where
         F: FnOnce() -> T,
@@ -112,6 +185,34 @@ impl<T> ResultExt<T> for Result<T> {
             Err(ref e) if e.code == Some(code) => Ok(replacement()),
             Err(e) => Err(e),
         }
+    }
+
+    fn allow_nullptr_with<F>(self, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T,
+    {
+        self.allow_err_with(NullPtr, replacement)
+    }
+
+    fn allow_rc_with<F>(self, rc: DWORD, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T,
+    {
+        self.allow_err_with(Rc(rc), replacement)
+    }
+
+    fn allow_last_error_with<F>(self, last_err: DWORD, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T,
+    {
+        self.allow_err_with(LastError(last_err), replacement)
+    }
+
+    fn allow_hresult_with<F>(self, hr: HRESULT, replacement: F) -> Result<T>
+    where
+        F: FnOnce() -> T,
+    {
+        self.allow_err_with(HResult(hr), replacement)
     }
 }
 

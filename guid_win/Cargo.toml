@@ -1,6 +1,6 @@
 [package]
 name = "guid_win"
-description = "Windows GUID/CLSID string parsing and binary serialization"
+description = "Windows GUID/CLSID string and binary serialization"
 keywords = ["windows", "com", "win32"]
 categories = ["api-bindings", "os::windows-apis"]
 version = "0.1.0"

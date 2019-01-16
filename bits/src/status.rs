@@ -1,5 +1,5 @@
 use winapi::shared::winerror::HRESULT;
-use winapi::um::bits::{BG_ERROR_CONTEXT,  BG_JOB_STATE};
+use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};
 
 #[cfg(feature = "status_serde")]
 use serde_derive::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ pub struct BitsJobStatus {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
-pub struct BitsJobProgress{
+pub struct BitsJobProgress {
     pub total_bytes: Option<u64>,
     pub transferred_bytes: u64,
     pub total_files: u32,

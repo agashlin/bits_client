@@ -4,6 +4,7 @@ extern crate wio;
 
 use std::ffi::OsString;
 use std::fmt::{Debug, Display, Error, Formatter, Result};
+use std::hash::{Hash, Hasher};
 use std::iter;
 use std::mem;
 use std::result;
@@ -48,6 +49,15 @@ impl PartialEq for Guid {
 }
 
 impl Eq for Guid {}
+
+impl Hash for Guid {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.Data1.hash(state);
+        self.0.Data2.hash(state);
+        self.0.Data3.hash(state);
+        self.0.Data4.hash(state);
+    }
+}
 
 impl Debug for Guid {
     fn fmt(&self, f: &mut Formatter) -> Result {

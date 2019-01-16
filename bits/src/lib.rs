@@ -1,5 +1,4 @@
 extern crate comedy;
-extern crate failure;
 extern crate guid_win;
 extern crate winapi;
 extern crate wio;
@@ -17,9 +16,8 @@ use std::mem;
 use std::result;
 
 use comedy::com::create_instance_local_server;
-use comedy::error::{ErrorCode, ResultExt};
+use comedy::error::{Error, ResultExt};
 use comedy::{com_call, com_call_getter};
-use failure::Error;
 use guid_win::Guid;
 use winapi::um::bits::{
     IBackgroundCopyCallback, IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager,
@@ -32,7 +30,7 @@ use winapi::RIDL;
 use wio::com::ComPtr;
 use wio::wide::ToWide;
 
-use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
+pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
 
 // reexport anything needed by clients here
 pub use winapi::um::bits::{
@@ -42,7 +40,7 @@ pub use winapi::um::bits::{
 
 type Result<T> = result::Result<T, Error>;
 
-// hacked in here until https://github.com/retep998/winapi-rs/pull/704
+// temporarily here until https://github.com/retep998/winapi-rs/pull/704 is available
 RIDL! {#[uuid(0x4991d34b, 0x80a1, 0x4291, 0x83, 0xb6, 0x33, 0x28, 0x36, 0x6b, 0x90, 0x97)]
 class BcmClass;}
 
@@ -71,11 +69,11 @@ impl BackgroundCopyManager {
         }
     }
 
-    pub fn find_job_by_guid(&self, guid: &Guid) -> Result<Option<BitsJob>> {
+    pub fn get_job_by_guid(&self, guid: &Guid) -> Result<Option<BitsJob>> {
         Ok(
             unsafe { com_call_getter!(|job| self.0, IBackgroundCopyManager::GetJob(&guid.0, job)) }
                 .map(|job| Some(BitsJob(job)))
-                .allow_err(ErrorCode::HResult(BG_E_NOT_FOUND as i32), None)?,
+                .allow_hresult(BG_E_NOT_FOUND as i32, None)?,
         )
     }
 }

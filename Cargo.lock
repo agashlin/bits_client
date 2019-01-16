@@ -30,7 +30,6 @@ name = "bits"
 version = "0.1.0"
 dependencies = [
  "comedy 0.1.0",
- "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "guid_win 0.1.0",
  "winapi 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "wio 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",

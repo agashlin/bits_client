@@ -56,7 +56,7 @@ fn entry() -> Result {
     let mut args: Vec<_> = env::args_os().collect();
 
     let mut client = match () {
-        _ => BitsClient::new(comedy::com::InitCom::init_sta()?),
+        _ => BitsClient::new()?,
     };
 
     if args.len() < 2 {
@@ -88,11 +88,11 @@ fn entry() -> Result {
 }
 
 fn bits_start(client: &mut BitsClient, url: OsString, save_path: OsString) -> Result {
-    let result = client.start_job(url, save_path, 1000)?;
+    let result = client.start_job(url, save_path, 10 * 60 * 1000)?;
     match result {
         Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
-            monitor_loop(monitor_client, 1000)?;
+            monitor_loop(monitor_client, 10 * 60 * 1000)?;
             Ok(())
         }
         Err(e) => bail!("error from server {:?}", e),

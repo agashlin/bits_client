@@ -148,9 +148,6 @@ pub struct SetUpdateIntervalCommand {
 pub enum SetUpdateIntervalFailure {
     ArgumentValidation(String),
     NotFound,
-    GetJob(HRESULT),
-    ApplySettings(HRESULT),
-    OtherBITS(HRESULT),
     Other(String),
 }
 
