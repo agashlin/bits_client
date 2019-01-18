@@ -102,7 +102,8 @@ macro_rules! com_call {
         }).function(concat!(stringify!($interface), "::", stringify!($method)))
           .file_line(file!(), line!())
     };
-    // support for trailing command in argument list
+
+    // support for trailing comma in argument list
     ($obj:expr, $interface:ident :: $method:ident ( $($arg:expr),+ , )) => {
         $crate::com_call!($obj, $interface::$method($($arg),+))
     };
@@ -139,6 +140,7 @@ macro_rules! com_call_getter {
         }).function(concat!(stringify!($interface), "::", stringify!($method)))
           .file_line(file!(), line!())
     }};
+
     // support for trailing comma in argument list
     (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),+ , )) => {
         $crate::com_call_getter!(|$outparam| $obj, $interface::$method($($arg),+))

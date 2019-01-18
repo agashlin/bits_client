@@ -5,15 +5,15 @@ use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 
 use bits::{
-    BackgroundCopyManager, BitsJob, BitsJobError, BitsJobStatus, BG_JOB_PRIORITY_FOREGROUND,
+    BackgroundCopyManager, BitsJob, BitsJobStatus, BG_JOB_PRIORITY_FOREGROUND,
     BG_JOB_PRIORITY_NORMAL,
 };
 use comedy::com::InitCom;
-use failure::Error;
 use guid_win::Guid;
 
 use bits_protocol::*;
 
+use super::Error;
 use self::InternalMonitorMessage::*;
 
 macro_rules! get_job {
@@ -168,7 +168,7 @@ struct InternalMonitorControl {
 
 enum InternalMonitorMessage {
     SetInterval(u32),
-    JobError(BitsJobError),
+    JobError,
     JobTransferred,
     #[allow(dead_code)]
     CloseMonitor,
@@ -189,24 +189,43 @@ impl InternalMonitor {
         let (sender, receiver) = mpsc::channel();
 
         let transferred_sender_mutex = Mutex::new(sender.clone());
-        let transferred_cb = Box::new(move |_job| {
+        let transferred_cb = Box::new(move || {
             let sender = transferred_sender_mutex.lock().unwrap();
 
             // TODO should try to cleanup if the send fails?
             // In particular, this callback should only be called once...
             let _result = sender.send(JobTransferred);
+
+            Ok(())
         });
 
         let error_sender_mutex = Mutex::new(sender.clone());
-        let error_cb = Box::new(move |_job, err| {
+        let error_cb = Box::new(move || {
             let sender = error_sender_mutex.lock().unwrap();
 
             // TODO should try to cleanup if the send fails?
-            let _result = sender.send(JobError(err));
+            let _result = sender.send(JobError);
+
+            Ok(())
+        });
+
+        let unregistered_sender_mutex = Mutex::new(sender.clone());
+        let unregistered_cb = Box::new(move || {
+            // TODO I'm not sure if we should necessarily close the monitor when the callbacks
+            // become unregistered. We should probably know, but we don't want to have to start
+            // up another monitor and get into a tug-of-war with whatever other process might
+            // have been peeking. Then again, when that process finishes, then no one will be
+            // monitoring, and we may miss events.
+            let sender = unregistered_sender_mutex.lock().unwrap();
+            let _result = sender.send(CloseMonitor);
         });
 
         let _callbacks_handle =
-            job.register_callbacks(Some(transferred_cb), Some(error_cb), None)?;
+            job.register_callbacks(
+                Some(transferred_cb),
+                Some(error_cb),
+                None,
+                Some(unregistered_cb))?;
 
         Ok((
             InternalMonitor {
@@ -222,15 +241,13 @@ impl InternalMonitor {
     }
 
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<BitsJobStatus, Error> {
-        use failure::bail;
-
         let timeout = Duration::from_millis(timeout_millis as u64);
 
         let started = Instant::now();
 
         loop {
             if started.elapsed() > timeout {
-                bail!("timeout");
+                return Err(Error::Timeout);
             }
 
             let interval = Duration::from_millis(self.interval_millis as u64);
@@ -244,7 +261,9 @@ impl InternalMonitor {
 
             if wait_until.is_none() || wait_until.unwrap() < now {
                 self.last_status = Some(now);
-                return Ok(self.job.get_status()?);
+                // Remote get_status will disconnect the pipe, simulate that here.
+                return self.job.get_status()
+                    .map_err(|_| Error::NotConnected);
             }
 
             // TODO with this implementation we are never guaranteed to eventually get messages
@@ -252,20 +271,28 @@ impl InternalMonitor {
             match self.receiver.recv_timeout(wait_until.unwrap() - now) {
                 Ok(CloseMonitor) => {
                     // TODO should try unregistering notifications on close?
-                    bail!("monitor shutting down");
+                    return Err(Error::NotConnected);
                 }
                 Ok(SetInterval(new_millis)) => {
                     self.interval_millis = new_millis;
                     // fall through to loop
                 }
-                Ok(JobError(_)) | Ok(JobTransferred) | Err(mpsc::RecvTimeoutError::Timeout) => {
+                Ok(JobError) | Ok(JobTransferred) | Err(mpsc::RecvTimeoutError::Timeout) => {
                     self.last_status = Some(Instant::now());
-                    return Ok(self.job.get_status()?);
+                    // Remote get_status errors will disconnect the pipe, simulate that here.
+                    return self.job.get_status()
+                        .map_err(|_| Error::NotConnected);
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    bail!("disconnected");
+                    return Err(Error::NotConnected);
                 }
             }
         }
+    }
+}
+
+impl Drop for InternalMonitor {
+    fn drop(&mut self) {
+        //let _result = self.job.clear_callbacks();
     }
 }

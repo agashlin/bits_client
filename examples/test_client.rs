@@ -10,12 +10,12 @@ use std::process;
 use std::str::FromStr;
 
 use bits::{BG_JOB_STATE_CONNECTING, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR};
-use failure::{bail, Error};
 use guid_win::Guid;
+use failure::bail;
 
 use bits_client::{BitsClient, BitsMonitorClient};
 
-type Result = std::result::Result<(), Error>;
+type Result = std::result::Result<(), failure::Error>;
 
 pub fn main() {
     if let Err(err) = entry() {
@@ -88,14 +88,24 @@ fn entry() -> Result {
 }
 
 fn bits_start(client: &mut BitsClient, url: OsString, save_path: OsString) -> Result {
-    let result = client.start_job(url, save_path, 10 * 60 * 1000)?;
+    let result = match client.start_job(url, save_path, 10 * 60 * 1000) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = e.clone();
+            return Err(failure::Error::from(e));
+        }
+    };
+
     match result {
         Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
             monitor_loop(monitor_client, 10 * 60 * 1000)?;
             Ok(())
         }
-        Err(e) => bail!("error from server {:?}", e),
+        Err(e) => {
+            let _ = e.clone();
+            bail!("error from server {:?}", e)
+        }
     }
 }
 
@@ -125,6 +135,7 @@ fn monitor_loop(mut monitor_client: BitsMonitorClient, wait_millis: u32) -> Resu
             break;
         }
     }
+    println!("monitor loop ending");
     Ok(())
 }
 

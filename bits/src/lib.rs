@@ -13,6 +13,7 @@ pub mod status;
 
 use std::ffi::OsStr;
 use std::mem;
+use std::ptr;
 use std::result;
 
 use comedy::com::create_instance_local_server;
@@ -20,9 +21,9 @@ use comedy::error::{Error, ResultExt};
 use comedy::{com_call, com_call_getter};
 use guid_win::Guid;
 use winapi::um::bits::{
-    IBackgroundCopyCallback, IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager,
-    BG_JOB_PRIORITY, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
-    BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
+    IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager,
+    BG_JOB_PRIORITY, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR,
+    BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
@@ -81,10 +82,6 @@ impl BackgroundCopyManager {
 pub struct BitsJob(ComPtr<IBackgroundCopyJob>);
 
 impl BitsJob {
-    unsafe fn from_ptr(job: ComPtr<IBackgroundCopyJob>) -> BitsJob {
-        BitsJob(job)
-    }
-
     pub fn guid(&self) -> Result<Guid> {
         // TODO: cache on create or retrieved by GUID?
         unsafe {
@@ -151,14 +148,9 @@ impl BitsJob {
         transferred_cb: Option<Box<callback::TransferredCallback>>,
         error_cb: Option<Box<callback::ErrorCallback>>,
         modification_cb: Option<Box<callback::ModificationCallback>>,
+        unregistered_cb: Option<Box<callback::UnregisteredCallback>>,
     ) -> Result<()>
 where {
-        // TODO check via GetNotifyInterface that there isn't already a callback registered,
-        // though we may want to override it anyway?
-        /*if self.callback.is_some() {
-            return Err(Error::Message("callback already registered".to_string()));
-        }*/
-
         let mut flags = 0;
         if transferred_cb.is_some() {
             flags |= BG_NOTIFY_JOB_TRANSFERRED;
@@ -170,31 +162,25 @@ where {
             flags |= BG_NOTIFY_JOB_MODIFICATION;
         }
 
+        callback::BackgroundCopyCallback::register(
+            self,
+            transferred_cb,
+            error_cb,
+            modification_cb,
+            unregistered_cb,
+        )?;
+
         unsafe { com_call!(self.0, IBackgroundCopyJob::SetNotifyFlags(flags)) }?;
 
-        let callback = Box::new(callback::BackgroundCopyCallback {
-            interface: IBackgroundCopyCallback {
-                lpVtbl: &callback::VTBL,
-            },
-            transferred: transferred_cb,
-            error: error_cb,
-            modification: modification_cb,
-        });
-
-        // TODO: don't just leak, proper ref counting
-        unsafe {
-            com_call!(
-                self.0,
-                IBackgroundCopyJob::SetNotifyInterface(Box::leak(callback)
-                    as *mut callback::BackgroundCopyCallback
-                    as *mut IUnknown)
-            )
-        }?;
-
-        // TODO: this should probably return some object that owns the callback registration, which
-        // handles clearing the notify interface on drop (and which maybe can check if the
-        // callback is still registered)
         Ok(())
+    }
+
+    pub fn clear_callbacks(&mut self) -> Result<()> {
+        unsafe {
+            com_call!(self.0, IBackgroundCopyJob::SetNotifyFlags(BG_NOTIFY_DISABLE))?;
+
+            self.set_notify_interface(ptr::null_mut() as *mut IUnknown)
+        }
     }
 
     pub fn get_status(&self) -> Result<BitsJobStatus> {
@@ -246,5 +232,12 @@ where {
             context,
             error: hresult,
         })
+    }
+
+    unsafe fn set_notify_interface(&self, interface: *mut IUnknown) -> Result<()> {
+        com_call!(
+            self.0,
+            IBackgroundCopyJob::SetNotifyInterface(interface))?;
+        Ok(())
     }
 }

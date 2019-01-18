@@ -8,7 +8,7 @@ use winapi::shared::minwindef::DWORD;
 use winapi::shared::winerror::{HRESULT, SUCCEEDED};
 use winapi::um::errhandlingapi::GetLastError;
 
-#[derive(Debug, Default, Eq, Fail, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Fail, PartialEq)]
 pub struct Error {
     pub code: Option<ErrorCode>,
     pub function: Option<&'static str>,
@@ -65,7 +65,7 @@ impl Error {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorCode {
     NullPtr,
     Rc(DWORD),
@@ -73,7 +73,7 @@ pub enum ErrorCode {
     HResult(HRESULT),
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileLine(pub &'static str, pub u32);
 
 impl fmt::Display for Error {

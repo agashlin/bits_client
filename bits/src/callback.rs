@@ -1,31 +1,71 @@
 use std::panic::{catch_unwind, RefUnwindSafe};
+use std::sync::Mutex;
 
+use comedy::Error;
 use guid_win::Guid;
 use winapi::ctypes::c_void;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::ntdef::ULONG;
-use winapi::shared::winerror::{E_NOINTERFACE, HRESULT, NOERROR, S_OK};
+use winapi::shared::winerror::{E_FAIL, E_NOINTERFACE, HRESULT, NOERROR, S_OK};
 use winapi::um::bits::{
     IBackgroundCopyCallback, IBackgroundCopyCallbackVtbl, IBackgroundCopyError, IBackgroundCopyJob,
 };
 use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
 use winapi::Interface;
-use wio::com::ComPtr;
 
-use {BitsJob, BitsJobError};
+use BitsJob;
 
-pub type TransferredCallback = (Fn(BitsJob) -> () + RefUnwindSafe + Send + Sync + 'static);
-pub type ErrorCallback = (Fn(BitsJob, BitsJobError) -> () + RefUnwindSafe + Send + Sync + 'static);
-pub type ModificationCallback = (Fn(BitsJob) -> () + RefUnwindSafe + Send + Sync + 'static);
+pub type TransferredCallback =
+    (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
+pub type ErrorCallback =
+    (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
+pub type ModificationCallback =
+    (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
+pub type UnregisteredCallback =
+    (Fn() -> ()) + RefUnwindSafe + Send + Sync + 'static;
 
 #[repr(C)]
 pub struct BackgroundCopyCallback {
-    pub interface: IBackgroundCopyCallback,
-    // TODO return from callback should be an error that can be logged?
-    pub transferred: Option<Box<TransferredCallback>>,
-    pub error: Option<Box<ErrorCallback>>,
-    pub modification: Option<Box<ModificationCallback>>,
+    interface: IBackgroundCopyCallback,
+    rc: Mutex<ULONG>,
+    transferred_cb: Option<Box<TransferredCallback>>,
+    error_cb: Option<Box<ErrorCallback>>,
+    modification_cb: Option<Box<ModificationCallback>>,
+    unregistered_cb: Option<Box<UnregisteredCallback>>,
+}
+
+impl BackgroundCopyCallback {
+    pub fn register(
+        job: &mut BitsJob,
+        transferred_cb: Option<Box<TransferredCallback>>,
+        error_cb: Option<Box<ErrorCallback>>,
+        modification_cb: Option<Box<ModificationCallback>>,
+        unregistered_cb: Option<Box<UnregisteredCallback>>) -> Result<(), Error>
+    {
+        let mut cb = Box::new(BackgroundCopyCallback {
+            interface: IBackgroundCopyCallback {
+                lpVtbl: &VTBL,
+            },
+            rc: Mutex::new(1),
+            transferred_cb,
+            error_cb,
+            modification_cb,
+            unregistered_cb,
+        });
+
+        assert!(&mut *cb as *mut BackgroundCopyCallback as *mut IUnknownVtbl ==
+                &mut cb.interface as *mut IBackgroundCopyCallback as *mut IUnknownVtbl);
+
+        let cb = Box::leak(cb) as *mut BackgroundCopyCallback as *mut IUnknown;
+
+        unsafe {
+            job.set_notify_interface(cb)?;
+            (*cb).Release();
+        };
+
+        Ok(())
+    }
 }
 
 extern "system" fn query_interface(
@@ -46,82 +86,104 @@ extern "system" fn query_interface(
     }
 }
 
-extern "system" fn addref(_this: *mut IUnknown) -> ULONG {
-    // TODO learn Rust synchronization
-    1
+extern "system" fn addref(this: *mut IUnknown) -> ULONG {
+    unsafe {
+        let this = this as *const BackgroundCopyCallback;
+        if let Ok(mut rc) = (*this).rc.lock() {
+            *rc += 1;
+            *rc
+        } else {
+            // HACK
+            // Can't reliably panic, what to do?
+            1
+        }
+    }
 }
 
-extern "system" fn release(_this: *mut IUnknown) -> ULONG {
-    // TODO
-    1
+extern "system" fn release(this: *mut IUnknown) -> ULONG {
+    unsafe {
+        let this = this as *const BackgroundCopyCallback;
+        if let Ok(mut rc) = (*this).rc.lock() {
+            *rc -= 1;
+
+            if *rc > 0 {
+                return *rc;
+            } else {
+                // fall through (to get out of the scope of *this above)
+            }
+        } else {
+            // HACK
+            // Can't reliably panic, what to do?
+            return 1;
+        }
+
+
+        // rc will have been 0 when we get here.
+        // re-Box in order to drop it.
+        let cb = Box::from_raw(this as *mut BackgroundCopyCallback);
+
+        if let Some(unregistered_cb) = cb.unregistered_cb {
+            let _result = catch_unwind(|| { unregistered_cb() });
+        }
+
+        return 0;
+    }
 }
 
 extern "system" fn transferred_stub(
     this: *mut IBackgroundCopyCallback,
-    job: *mut IBackgroundCopyJob,
+    _job: *mut IBackgroundCopyJob,
 ) -> HRESULT {
     unsafe {
-        let this = this as *mut BackgroundCopyCallback;
-        if let Some(ref cb) = (*this).transferred {
-            // TODO: argue about this, BitsJob should probably have an unsafe from_raw that
-            // does this and also ComPtr::from_raw internally
-            (*job).AddRef();
-            // TODO: we probably don't need to bother with catch_unwind as we'll be building
-            // with abort on panic
-            let result = catch_unwind(|| cb(BitsJob::from_ptr(ComPtr::from_raw(job))));
-            // TODO: proper logging
-            if let Err(e) = result {
-                use std::io::Write;
-                if let Ok(mut file) = std::fs::File::create("C:\\ProgramData\\callbackfail.log") {
-                    #[allow(unused_must_use)]
-                    {
-                        file.write(format!("{:?}", e.downcast_ref::<String>()).as_bytes());
-                    }
-                }
+        let this = this as *const BackgroundCopyCallback;
+        if let Some(ref cb) = (*this).transferred_cb {
+            match catch_unwind(|| { cb() }) {
+                Ok(Ok(())) => S_OK,
+                Ok(Err(hr)) => hr,
+                Err(_) => E_FAIL,
             }
+        } else {
+            S_OK
         }
     }
-    S_OK
 }
 
 extern "system" fn error_stub(
     this: *mut IBackgroundCopyCallback,
-    job: *mut IBackgroundCopyJob,
-    error: *mut IBackgroundCopyError,
+    _job: *mut IBackgroundCopyJob,
+    _error: *mut IBackgroundCopyError,
 ) -> HRESULT {
     unsafe {
-        let this = this as *mut BackgroundCopyCallback;
-        if let Some(ref cb) = (*this).error {
-            (*job).AddRef();
-            (*error).AddRef();
-            if let Err(_e) = catch_unwind(|| {
-                cb(
-                    BitsJob::from_ptr(ComPtr::from_raw(job)),
-                    BitsJob::get_error(ComPtr::from_raw(error)).expect("unwrapping"),
-                )
-            }) {
-                // TODO logging
+        let this = this as *const BackgroundCopyCallback;
+        if let Some(ref cb) = (*this).error_cb {
+            match catch_unwind(|| { cb() }) {
+                Ok(Ok(())) => S_OK,
+                Ok(Err(hr)) => hr,
+                Err(_) => E_FAIL,
             }
+        } else {
+            S_OK
         }
     }
-    S_OK
 }
 
 extern "system" fn modification_stub(
     this: *mut IBackgroundCopyCallback,
-    job: *mut IBackgroundCopyJob,
+    _job: *mut IBackgroundCopyJob,
     _reserved: DWORD,
 ) -> HRESULT {
     unsafe {
-        let this = this as *mut BackgroundCopyCallback;
-        if let Some(ref cb) = (*this).modification {
-            (*job).AddRef();
-            if let Err(_e) = catch_unwind(|| cb(BitsJob::from_ptr(ComPtr::from_raw(job)))) {
-                // TODO logging
+        let this = this as *const BackgroundCopyCallback;
+        if let Some(ref cb) = (*this).modification_cb {
+            match catch_unwind(|| { cb() }) {
+                Ok(Ok(())) => S_OK,
+                Ok(Err(hr)) => hr,
+                Err(_) => E_FAIL,
             }
+        } else {
+            S_OK
         }
     }
-    S_OK
 }
 
 pub static VTBL: IBackgroundCopyCallbackVtbl = IBackgroundCopyCallbackVtbl {

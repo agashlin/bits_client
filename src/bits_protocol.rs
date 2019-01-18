@@ -11,7 +11,7 @@ pub const MAX_RESPONSE: usize = 0x4000;
 pub const PROTOCOL_VERSION: u8 = 0;
 
 // Any command
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Command {
     StartJob(StartJobCommand),
     MonitorJob(MonitorJobCommand),
@@ -35,19 +35,19 @@ pub struct MonitorConfig {
 }
 
 // Start Job
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StartJobCommand {
     pub url: OsString,
     pub save_path: OsString,
     pub monitor: Option<MonitorConfig>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StartJobSuccess {
     pub guid: Guid,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum StartJobFailure {
     ArgumentValidation(String),
     Create(HRESULT),
@@ -67,13 +67,13 @@ impl CommandType for StartJobCommand {
 }
 
 // Monitor Job
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MonitorJobCommand {
     pub guid: Guid,
     pub monitor: MonitorConfig,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum MonitorJobFailure {
     ArgumentValidation(String),
     NotFound,
@@ -91,12 +91,12 @@ impl CommandType for MonitorJobCommand {
 }
 
 // Resume Job
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ResumeJobCommand {
     pub guid: Guid,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ResumeJobFailure {
     NotFound,
     GetJob(HRESULT),
@@ -114,13 +114,13 @@ impl CommandType for ResumeJobCommand {
 }
 
 // Set Job Priority
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SetJobPriorityCommand {
     pub guid: Guid,
     pub foreground: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum SetJobPriorityFailure {
     NotFound,
     GetJob(HRESULT),
@@ -138,13 +138,13 @@ impl CommandType for SetJobPriorityCommand {
 }
 
 // Set Update Interval
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SetUpdateIntervalCommand {
     pub guid: Guid,
     pub interval_millis: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum SetUpdateIntervalFailure {
     ArgumentValidation(String),
     NotFound,
@@ -160,12 +160,12 @@ impl CommandType for SetUpdateIntervalCommand {
 }
 
 // Complete Job
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CompleteJobCommand {
     pub guid: Guid,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum CompleteJobFailure {
     NotFound,
     GetJob(HRESULT),
@@ -184,12 +184,12 @@ impl CommandType for CompleteJobCommand {
 }
 
 // Cancel Job
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CancelJobCommand {
     pub guid: Guid,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum CancelJobFailure {
     NotFound,
     GetJob(HRESULT),
