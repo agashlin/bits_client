@@ -29,13 +29,20 @@ macro_rules! get_job {
 pub struct InternalClient {
     #[allow(dead_code)]
     com: InitCom,
+    job_name: ffi::OsString,
+    save_path_prefix: ffi::OsString,
     monitors: HashMap<Guid, InternalMonitorControl>,
 }
 
 impl InternalClient {
-    pub fn new() -> Result<InternalClient, Error> {
+    pub fn new(
+        job_name: ffi::OsString,
+        save_path_prefix: ffi::OsString,
+    ) -> Result<InternalClient, Error> {
         Ok(InternalClient {
             com: InitCom::init_mta()?,
+            job_name,
+            save_path_prefix,
             monitors: HashMap::new(),
         })
     }
@@ -48,10 +55,12 @@ impl InternalClient {
     ) -> Result<(StartJobSuccess, InternalMonitor), StartJobFailure> {
         use StartJobFailure::*;
 
-        // TODO determine real name
+        let mut full_path = self.save_path_prefix.clone();
+        full_path.push(save_path.as_os_str());
+
         let mut job = BackgroundCopyManager::connect()
             .map_err(|e| Other(e.to_string()))?
-            .create_job(&ffi::OsString::from("JOBBO"))
+            .create_job(&self.job_name)
             .map_err(|e| Create(e.get_hresult().unwrap()))?;
 
         let guid = job
@@ -59,7 +68,7 @@ impl InternalClient {
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         // TODO should the job be cleaned up if this fcn don't return success?
-        job.add_file(&url, &save_path)
+        job.add_file(&url, &full_path)
             .map_err(|e| AddFile(e.get_hresult().unwrap()))?;
         job.resume().map_err(|e| Resume(e.get_hresult().unwrap()))?;
 
@@ -127,8 +136,6 @@ impl InternalClient {
         if let Some(ctrl) = self.monitors.get(&guid) {
             if ctrl
                 .sender
-                .lock()
-                .unwrap()
                 .send(InternalMonitorMessage::SetInterval(interval_millis))
                 .is_ok()
             {
@@ -163,7 +170,7 @@ impl InternalClient {
 }
 
 struct InternalMonitorControl {
-    sender: Mutex<mpsc::Sender<InternalMonitorMessage>>,
+    sender: mpsc::Sender<InternalMonitorMessage>,
 }
 
 enum InternalMonitorMessage {
@@ -235,7 +242,7 @@ impl InternalMonitor {
                 last_status: None,
             },
             InternalMonitorControl {
-                sender: Mutex::new(sender),
+                sender,
             },
         ))
     }

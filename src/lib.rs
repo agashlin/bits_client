@@ -50,8 +50,10 @@ use BitsClient::*;
 
 impl BitsClient {
     /// Create an in-process BitsClient.
-    pub fn new() -> Result<BitsClient, Error> {
-        Ok(Internal(in_process::InternalClient::new()?))
+    pub fn new(job_name: ffi::OsString, save_path_prefix: ffi::OsString)
+        -> Result<BitsClient, Error>
+    {
+        Ok(Internal(in_process::InternalClient::new(job_name, save_path_prefix)?))
     }
 
     pub fn start_job(
@@ -61,9 +63,10 @@ impl BitsClient {
         monitor_interval_millis: u32,
     ) -> Result<Result<(StartJobSuccess, BitsMonitorClient), StartJobFailure>, Error> {
         match self {
-            Internal(client) => Ok(client
-                .start_job(url, save_path, monitor_interval_millis)
-                .map(|(success, monitor)| (success, BitsMonitorClient::Internal(monitor)))),
+            Internal(client) => {
+                Ok(client.start_job(url, save_path, monitor_interval_millis)
+                    .map(|(success, monitor)| (success, BitsMonitorClient::Internal(monitor))))
+            }
         }
     }
 

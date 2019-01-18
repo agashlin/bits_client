@@ -56,7 +56,7 @@ fn entry() -> Result {
     let mut args: Vec<_> = env::args_os().collect();
 
     let mut client = match () {
-        _ => BitsClient::new()?,
+        _ => BitsClient::new(OsString::from("JOBBO-2"), OsString::from("C:\\ProgramData\\"))?,
     };
 
     if args.len() < 2 {
