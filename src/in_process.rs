@@ -31,7 +31,7 @@ pub struct InternalClient {
     com: InitCom,
     job_name: ffi::OsString,
     save_path_prefix: ffi::OsString,
-    monitors: HashMap<Guid, InternalMonitorControl>,
+    monitors: Mutex<HashMap<Guid, InternalMonitorControl>>,
 }
 
 impl InternalClient {
@@ -43,12 +43,12 @@ impl InternalClient {
             com: InitCom::init_mta()?,
             job_name,
             save_path_prefix,
-            monitors: HashMap::new(),
+            monitors: Mutex::new(HashMap::new()),
         })
     }
 
     pub fn start_job(
-        &mut self,
+        &self,
         url: ffi::OsString,
         save_path: ffi::OsString,
         monitor_interval_millis: u32,
@@ -75,13 +75,14 @@ impl InternalClient {
         let (client, control) = InternalMonitor::new(job, monitor_interval_millis)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
-        self.monitors.insert(guid.clone(), control);
+        // TODO need to clean up defunct monitors
+        self.monitors.lock().unwrap().insert(guid.clone(), control);
 
         Ok((StartJobSuccess { guid }, client))
     }
 
     pub fn monitor_job(
-        &mut self,
+        &self,
         guid: Guid,
         interval_millis: u32,
     ) -> Result<InternalMonitor, MonitorJobFailure> {
@@ -91,12 +92,12 @@ impl InternalClient {
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         // This will drop any preexisting monitor for the same guid
-        self.monitors.insert(guid, control);
+        self.monitors.lock().unwrap().insert(guid, control);
 
         Ok(client)
     }
 
-    pub fn resume_job(&mut self, guid: Guid) -> Result<(), ResumeJobFailure> {
+    pub fn resume_job(&self, guid: Guid) -> Result<(), ResumeJobFailure> {
         use ResumeJobFailure::*;
 
         get_job!(&guid)
@@ -107,7 +108,7 @@ impl InternalClient {
     }
 
     pub fn set_job_priorty(
-        &mut self,
+        &self,
         guid: Guid,
         foreground: bool,
     ) -> Result<(), SetJobPriorityFailure> {
@@ -127,15 +128,17 @@ impl InternalClient {
     }
 
     pub fn set_update_interval(
-        &mut self,
+        &self,
         guid: Guid,
         interval_millis: u32,
     ) -> Result<(), SetUpdateIntervalFailure> {
         use SetUpdateIntervalFailure::*;
 
-        if let Some(ctrl) = self.monitors.get(&guid) {
+        if let Some(ctrl) = self.monitors.lock().unwrap().get(&guid) {
             if ctrl
                 .sender
+                .lock()
+                .unwrap()
                 .send(InternalMonitorMessage::SetInterval(interval_millis))
                 .is_ok()
             {
@@ -148,7 +151,22 @@ impl InternalClient {
         }
     }
 
-    pub fn complete_job(&mut self, guid: Guid) -> Result<(), CompleteJobFailure> {
+    pub fn stop_update(&self, guid: Guid) -> Result<(), SetUpdateIntervalFailure> {
+        use SetUpdateIntervalFailure::*;
+
+        if let Some(ctrl) = self.monitors.lock().unwrap().get(&guid) {
+            if ctrl.sender.lock().unwrap().send(InternalMonitorMessage::CloseMonitor).is_ok()
+            {
+                Ok(())
+            } else {
+                Err(Other(String::from("disconnected")))
+            }
+        } else {
+            Err(NotFound)
+        }
+    }
+
+    pub fn complete_job(&self, guid: Guid) -> Result<(), CompleteJobFailure> {
         use CompleteJobFailure::*;
 
         get_job!(&guid)
@@ -158,7 +176,7 @@ impl InternalClient {
         Ok(())
     }
 
-    pub fn cancel_job(&mut self, guid: Guid) -> Result<(), CancelJobFailure> {
+    pub fn cancel_job(&self, guid: Guid) -> Result<(), CancelJobFailure> {
         use CancelJobFailure::*;
 
         get_job!(&guid)
@@ -170,7 +188,7 @@ impl InternalClient {
 }
 
 struct InternalMonitorControl {
-    sender: mpsc::Sender<InternalMonitorMessage>,
+    sender: Mutex<mpsc::Sender<InternalMonitorMessage>>,
 }
 
 enum InternalMonitorMessage {
@@ -242,7 +260,7 @@ impl InternalMonitor {
                 last_status: None,
             },
             InternalMonitorControl {
-                sender,
+                sender: Mutex::new(sender),
             },
         ))
     }
@@ -300,6 +318,7 @@ impl InternalMonitor {
 
 impl Drop for InternalMonitor {
     fn drop(&mut self) {
+        // This Drop should probably be what removes the monitor from InternalClient::monitors
         //let _result = self.job.clear_callbacks();
     }
 }

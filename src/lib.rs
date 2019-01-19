@@ -57,7 +57,7 @@ impl BitsClient {
     }
 
     pub fn start_job(
-        &mut self,
+        &self,
         url: ffi::OsString,
         save_path: ffi::OsString,
         monitor_interval_millis: u32,
@@ -71,7 +71,7 @@ impl BitsClient {
     }
 
     pub fn monitor_job(
-        &mut self,
+        &self,
         guid: Guid,
         interval_millis: u32,
     ) -> Result<Result<BitsMonitorClient, MonitorJobFailure>, Error> {
@@ -82,14 +82,14 @@ impl BitsClient {
         }
     }
 
-    pub fn resume_job(&mut self, guid: Guid) -> Result<Result<(), ResumeJobFailure>, Error> {
+    pub fn resume_job(&self, guid: Guid) -> Result<Result<(), ResumeJobFailure>, Error> {
         match self {
             Internal(client) => Ok(client.resume_job(guid)),
         }
     }
 
     pub fn set_job_priorty(
-        &mut self,
+        &self,
         guid: Guid,
         foreground: bool,
     ) -> Result<Result<(), SetJobPriorityFailure>, Error> {
@@ -99,7 +99,7 @@ impl BitsClient {
     }
 
     pub fn set_update_interval(
-        &mut self,
+        &self,
         guid: Guid,
         interval_millis: u32,
     ) -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
@@ -108,13 +108,20 @@ impl BitsClient {
         }
     }
 
-    pub fn complete_job(&mut self, guid: Guid) -> Result<Result<(), CompleteJobFailure>, Error> {
+    pub fn stop_update(&self, guid: Guid)
+        -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
+        match self {
+            Internal(client) => Ok(client.stop_update(guid)),
+        }
+    }
+
+    pub fn complete_job(&self, guid: Guid) -> Result<Result<(), CompleteJobFailure>, Error> {
         match self {
             Internal(client) => Ok(client.complete_job(guid)),
         }
     }
 
-    pub fn cancel_job(&mut self, guid: Guid) -> Result<Result<(), CancelJobFailure>, Error> {
+    pub fn cancel_job(&self, guid: Guid) -> Result<Result<(), CancelJobFailure>, Error> {
         match self {
             Internal(client) => Ok(client.cancel_job(guid)),
         }
