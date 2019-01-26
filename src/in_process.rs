@@ -1,12 +1,12 @@
 use std::cmp;
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::ffi;
-use std::sync::{mpsc, Mutex};
+use std::sync::{Arc, mpsc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
     BackgroundCopyManager, BitsJob, BitsJobStatus, BG_JOB_PRIORITY_FOREGROUND,
-    BG_JOB_PRIORITY_NORMAL,
+    BG_JOB_PRIORITY_NORMAL, E_FAIL,
 };
 use comedy::com::InitCom;
 use guid_win::Guid;
@@ -14,7 +14,7 @@ use guid_win::Guid;
 use bits_protocol::*;
 
 use super::Error;
-use self::InternalMonitorMessage::*;
+use self::InProcessMonitorMessage::*;
 
 macro_rules! get_job {
     ($guid:expr) => {{
@@ -26,33 +26,32 @@ macro_rules! get_job {
     }};
 }
 
-pub struct InternalClient {
-    #[allow(dead_code)]
-    com: InitCom,
+pub struct InProcessClient {
+    _com: InitCom,
     job_name: ffi::OsString,
     save_path_prefix: ffi::OsString,
-    monitors: Mutex<HashMap<Guid, InternalMonitorControl>>,
+    monitors: HashMap<Guid, InProcessMonitorControl>,
 }
 
-impl InternalClient {
+impl InProcessClient {
     pub fn new(
         job_name: ffi::OsString,
         save_path_prefix: ffi::OsString,
-    ) -> Result<InternalClient, Error> {
-        Ok(InternalClient {
-            com: InitCom::init_mta()?,
+    ) -> Result<InProcessClient, Error> {
+        Ok(InProcessClient {
+            _com: InitCom::init_mta()?,
             job_name,
             save_path_prefix,
-            monitors: Mutex::new(HashMap::new()),
+            monitors: HashMap::new(),
         })
     }
 
     pub fn start_job(
-        &self,
+        &mut self,
         url: ffi::OsString,
         save_path: ffi::OsString,
         monitor_interval_millis: u32,
-    ) -> Result<(StartJobSuccess, InternalMonitor), StartJobFailure> {
+    ) -> Result<(StartJobSuccess, InProcessMonitor), StartJobFailure> {
         use StartJobFailure::*;
 
         let mut full_path = self.save_path_prefix.clone();
@@ -72,32 +71,31 @@ impl InternalClient {
             .map_err(|e| AddFile(e.get_hresult().unwrap()))?;
         job.resume().map_err(|e| Resume(e.get_hresult().unwrap()))?;
 
-        let (client, control) = InternalMonitor::new(job, monitor_interval_millis)
+        let (client, control) = InProcessMonitor::new(job, monitor_interval_millis)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
-        // TODO need to clean up defunct monitors
-        self.monitors.lock().unwrap().insert(guid.clone(), control);
+        self.monitors.insert(guid.clone(), control);
 
         Ok((StartJobSuccess { guid }, client))
     }
 
     pub fn monitor_job(
-        &self,
+        &mut self,
         guid: Guid,
         interval_millis: u32,
-    ) -> Result<InternalMonitor, MonitorJobFailure> {
+    ) -> Result<InProcessMonitor, MonitorJobFailure> {
         use MonitorJobFailure::*;
 
-        let (client, control) = InternalMonitor::new(get_job!(&guid), interval_millis)
+        let (client, control) = InProcessMonitor::new(get_job!(&guid), interval_millis)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         // This will drop any preexisting monitor for the same guid
-        self.monitors.lock().unwrap().insert(guid, control);
+        self.monitors.insert(guid, control);
 
         Ok(client)
     }
 
-    pub fn resume_job(&self, guid: Guid) -> Result<(), ResumeJobFailure> {
+    pub fn resume_job(&mut self, guid: Guid) -> Result<(), ResumeJobFailure> {
         use ResumeJobFailure::*;
 
         get_job!(&guid)
@@ -108,7 +106,7 @@ impl InternalClient {
     }
 
     pub fn set_job_priorty(
-        &self,
+        &mut self,
         guid: Guid,
         foreground: bool,
     ) -> Result<(), SetJobPriorityFailure> {
@@ -127,46 +125,46 @@ impl InternalClient {
         Ok(())
     }
 
+    fn get_monitor_control_sender(&mut self, guid: Guid) -> Option<Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>> {
+        if let hash_map::Entry::Occupied(occ) = self.monitors.entry(guid) {
+            if let Some(sender) = occ.get().sender.upgrade() {
+                Some(sender)
+            } else {
+                occ.remove_entry();
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn set_update_interval(
-        &self,
+        &mut self,
         guid: Guid,
         interval_millis: u32,
     ) -> Result<(), SetUpdateIntervalFailure> {
         use SetUpdateIntervalFailure::*;
 
-        if let Some(ctrl) = self.monitors.lock().unwrap().get(&guid) {
-            if ctrl
-                .sender
-                .lock()
-                .unwrap()
-                .send(InternalMonitorMessage::SetInterval(interval_millis))
-                .is_ok()
-            {
-                Ok(())
-            } else {
-                Err(Other(String::from("disconnected")))
-            }
+        if let Some(sender) = self.get_monitor_control_sender(guid) {
+            sender.lock().unwrap().send(InProcessMonitorMessage::SetInterval(interval_millis))
+                .map_err(|_| NotFound)
         } else {
             Err(NotFound)
         }
     }
 
-    pub fn stop_update(&self, guid: Guid) -> Result<(), SetUpdateIntervalFailure> {
+    pub fn stop_update(&mut self, guid: Guid) -> Result<(), SetUpdateIntervalFailure> {
         use SetUpdateIntervalFailure::*;
 
-        if let Some(ctrl) = self.monitors.lock().unwrap().get(&guid) {
-            if ctrl.sender.lock().unwrap().send(InternalMonitorMessage::CloseMonitor).is_ok()
-            {
-                Ok(())
-            } else {
-                Err(Other(String::from("disconnected")))
-            }
+        if let Some(sender) = self.get_monitor_control_sender(guid) {
+            sender.lock().unwrap().send(InProcessMonitorMessage::StopMonitor)
+                .map_err(|_| NotFound)
         } else {
             Err(NotFound)
         }
     }
 
-    pub fn complete_job(&self, guid: Guid) -> Result<(), CompleteJobFailure> {
+    pub fn complete_job(&mut self, guid: Guid) -> Result<(), CompleteJobFailure> {
         use CompleteJobFailure::*;
 
         get_job!(&guid)
@@ -176,7 +174,7 @@ impl InternalClient {
         Ok(())
     }
 
-    pub fn cancel_job(&self, guid: Guid) -> Result<(), CancelJobFailure> {
+    pub fn cancel_job(&mut self, guid: Guid) -> Result<(), CancelJobFailure> {
         use CancelJobFailure::*;
 
         get_job!(&guid)
@@ -187,82 +185,96 @@ impl InternalClient {
     }
 }
 
-struct InternalMonitorControl {
-    sender: Mutex<mpsc::Sender<InternalMonitorMessage>>,
+struct InProcessMonitorControl {
+    sender: Weak<Mutex<mpsc::Sender<InProcessMonitorMessage>>>,
 }
 
-enum InternalMonitorMessage {
+enum InProcessMonitorMessage {
     SetInterval(u32),
     JobError,
     JobTransferred,
     #[allow(dead_code)]
-    CloseMonitor,
+    StopMonitor,
 }
 
-pub struct InternalMonitor {
+pub struct InProcessMonitor {
     job: BitsJob,
-    receiver: mpsc::Receiver<InternalMonitorMessage>,
+    control_sender: Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>,
+    receiver: Option<mpsc::Receiver<InProcessMonitorMessage>>,
     interval_millis: u32,
     last_status: Option<Instant>,
+    priority_boosted: bool,
 }
 
-impl InternalMonitor {
+impl InProcessMonitor {
     fn new(
         mut job: BitsJob,
         interval_millis: u32,
-    ) -> Result<(InternalMonitor, InternalMonitorControl), comedy::Error> {
+    ) -> Result<(InProcessMonitor, InProcessMonitorControl), comedy::Error> {
         let (sender, receiver) = mpsc::channel();
 
         let transferred_sender_mutex = Mutex::new(sender.clone());
         let transferred_cb = Box::new(move || {
             let sender = transferred_sender_mutex.lock().unwrap();
 
-            // TODO should try to cleanup if the send fails?
-            // In particular, this callback should only be called once...
-            let _result = sender.send(JobTransferred);
-
-            Ok(())
+            sender.send(JobTransferred)
+                .map_err(|_| E_FAIL)
         });
 
         let error_sender_mutex = Mutex::new(sender.clone());
         let error_cb = Box::new(move || {
             let sender = error_sender_mutex.lock().unwrap();
 
-            // TODO should try to cleanup if the send fails?
-            let _result = sender.send(JobError);
-
-            Ok(())
+            sender.send(JobError)
+                .map_err(|_| E_FAIL)
         });
 
-        let unregistered_sender_mutex = Mutex::new(sender.clone());
-        let unregistered_cb = Box::new(move || {
-            // TODO I'm not sure if we should necessarily close the monitor when the callbacks
-            // become unregistered. We should probably know, but we don't want to have to start
-            // up another monitor and get into a tug-of-war with whatever other process might
-            // have been peeking. Then again, when that process finishes, then no one will be
-            // monitoring, and we may miss events.
-            let sender = unregistered_sender_mutex.lock().unwrap();
-            let _result = sender.send(CloseMonitor);
-        });
+        job.register_callbacks(
+            Some(transferred_cb),
+            Some(error_cb),
+            None)?;
 
-        let _callbacks_handle =
-            job.register_callbacks(
-                Some(transferred_cb),
-                Some(error_cb),
-                None,
-                Some(unregistered_cb))?;
+        // Ignore set priority failure
+        eprintln!("setting priority to foreground");
+        let _ = job.set_priority(BG_JOB_PRIORITY_FOREGROUND);
 
-        Ok((
-            InternalMonitor {
-                job,
-                receiver,
-                interval_millis,
-                last_status: None,
-            },
-            InternalMonitorControl {
-                sender: Mutex::new(sender),
-            },
-        ))
+        let monitor = InProcessMonitor {
+            job,
+            control_sender: Arc::new(Mutex::new(sender)),
+            receiver: Some(receiver),
+            interval_millis,
+            last_status: None,
+            priority_boosted: true,
+        };
+        let control = InProcessMonitorControl {
+            sender: Arc::downgrade(&monitor.control_sender),
+        };
+
+        Ok((monitor, control))
+    }
+
+    fn disconnect(&mut self) {
+        if self.priority_boosted {
+            eprintln!("setting priority back to normal");
+            let _ = self.job.set_priority(BG_JOB_PRIORITY_NORMAL);
+            self.priority_boosted = false;
+        }
+
+        self.receiver = None;
+    }
+
+    fn get_status_now(&mut self) -> Result<BitsJobStatus, Error> {
+        self.last_status = Some(Instant::now());
+        let result = self.job.get_status();
+        match result {
+            Ok(status) => {
+                Ok(status)
+            }
+            Err(_) => {
+                self.disconnect();
+                Err(Error::NotConnected)
+            }
+        }
     }
 
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<BitsJobStatus, Error> {
@@ -271,6 +283,10 @@ impl InternalMonitor {
         let started = Instant::now();
 
         loop {
+            if self.receiver.is_none() {
+                return Err(Error::NotConnected);
+            }
+
             if started.elapsed() > timeout {
                 return Err(Error::Timeout);
             }
@@ -285,40 +301,29 @@ impl InternalMonitor {
             let now = Instant::now();
 
             if wait_until.is_none() || wait_until.unwrap() < now {
-                self.last_status = Some(now);
-                // Remote get_status will disconnect the pipe, simulate that here.
-                return self.job.get_status()
-                    .map_err(|_| Error::NotConnected);
+                return self.get_status_now();
             }
 
-            // TODO with this implementation we are never guaranteed to eventually get messages
-            // (such as CloseMonitor) from the queue
-            match self.receiver.recv_timeout(wait_until.unwrap() - now) {
-                Ok(CloseMonitor) => {
-                    // TODO should try unregistering notifications on close?
+            match self.receiver.as_ref().unwrap().recv_timeout(wait_until.unwrap() - now) {
+                Ok(StopMonitor) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    // Disconnection, drop the receiver.
+                    self.disconnect();
                     return Err(Error::NotConnected);
                 }
                 Ok(SetInterval(new_millis)) => {
                     self.interval_millis = new_millis;
-                    // fall through to loop
+                    // Fall through to loop
                 }
                 Ok(JobError) | Ok(JobTransferred) | Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.last_status = Some(Instant::now());
-                    // Remote get_status errors will disconnect the pipe, simulate that here.
-                    return self.job.get_status()
-                        .map_err(|_| Error::NotConnected);
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(Error::NotConnected);
+                    return self.get_status_now();
                 }
             }
         }
     }
 }
 
-impl Drop for InternalMonitor {
+impl Drop for InProcessMonitor {
     fn drop(&mut self) {
-        // This Drop should probably be what removes the monitor from InternalClient::monitors
-        //let _result = self.job.clear_callbacks();
+        self.disconnect();
     }
 }

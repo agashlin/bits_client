@@ -22,8 +22,6 @@ pub type ErrorCallback =
     (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
 pub type ModificationCallback =
     (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
-pub type UnregisteredCallback =
-    (Fn() -> ()) + RefUnwindSafe + Send + Sync + 'static;
 
 #[repr(C)]
 pub struct BackgroundCopyCallback {
@@ -32,7 +30,6 @@ pub struct BackgroundCopyCallback {
     transferred_cb: Option<Box<TransferredCallback>>,
     error_cb: Option<Box<ErrorCallback>>,
     modification_cb: Option<Box<ModificationCallback>>,
-    unregistered_cb: Option<Box<UnregisteredCallback>>,
 }
 
 impl BackgroundCopyCallback {
@@ -40,8 +37,7 @@ impl BackgroundCopyCallback {
         job: &mut BitsJob,
         transferred_cb: Option<Box<TransferredCallback>>,
         error_cb: Option<Box<ErrorCallback>>,
-        modification_cb: Option<Box<ModificationCallback>>,
-        unregistered_cb: Option<Box<UnregisteredCallback>>) -> Result<(), Error>
+        modification_cb: Option<Box<ModificationCallback>>) -> Result<(), Error>
     {
         let mut cb = Box::new(BackgroundCopyCallback {
             interface: IBackgroundCopyCallback {
@@ -51,7 +47,6 @@ impl BackgroundCopyCallback {
             transferred_cb,
             error_cb,
             modification_cb,
-            unregistered_cb,
         });
 
         assert!(&mut *cb as *mut BackgroundCopyCallback as *mut IUnknownVtbl ==
@@ -120,11 +115,7 @@ extern "system" fn release(this: *mut IUnknown) -> ULONG {
 
         // rc will have been 0 when we get here.
         // re-Box in order to drop it.
-        let cb = Box::from_raw(this as *mut BackgroundCopyCallback);
-
-        if let Some(unregistered_cb) = cb.unregistered_cb {
-            let _result = catch_unwind(|| { unregistered_cb() });
-        }
+        let _ = Box::from_raw(this as *mut BackgroundCopyCallback);
 
         return 0;
     }

@@ -40,9 +40,9 @@ impl convert::From<comedy::Error> for PipeError {
 pub use PipeError as Error;
 
 pub enum BitsClient {
-    /// The Internal variant does all BITS calls in-process.
-    Internal(in_process::InternalClient),
-    // Space is reserved here for the Local Service client, which will work through an external
+    /// The InProcess variant does all BITS calls in-process.
+    InProcess(in_process::InProcessClient),
+    // Space is reserved here for the LocalService variant, which will work through an external
     // process running as Local Service.
 }
 
@@ -53,89 +53,89 @@ impl BitsClient {
     pub fn new(job_name: ffi::OsString, save_path_prefix: ffi::OsString)
         -> Result<BitsClient, Error>
     {
-        Ok(Internal(in_process::InternalClient::new(job_name, save_path_prefix)?))
+        Ok(InProcess(in_process::InProcessClient::new(job_name, save_path_prefix)?))
     }
 
     pub fn start_job(
-        &self,
+        &mut self,
         url: ffi::OsString,
         save_path: ffi::OsString,
         monitor_interval_millis: u32,
     ) -> Result<Result<(StartJobSuccess, BitsMonitorClient), StartJobFailure>, Error> {
         match self {
-            Internal(client) => {
+            InProcess(client) => {
                 Ok(client.start_job(url, save_path, monitor_interval_millis)
-                    .map(|(success, monitor)| (success, BitsMonitorClient::Internal(monitor))))
+                    .map(|(success, monitor)| (success, BitsMonitorClient::InProcess(monitor))))
             }
         }
     }
 
     pub fn monitor_job(
-        &self,
+        &mut self,
         guid: Guid,
         interval_millis: u32,
     ) -> Result<Result<BitsMonitorClient, MonitorJobFailure>, Error> {
         match self {
-            Internal(client) => Ok(client
+            InProcess(client) => Ok(client
                 .monitor_job(guid, interval_millis)
-                .map(|monitor| BitsMonitorClient::Internal(monitor))),
+                .map(|monitor| BitsMonitorClient::InProcess(monitor))),
         }
     }
 
-    pub fn resume_job(&self, guid: Guid) -> Result<Result<(), ResumeJobFailure>, Error> {
+    pub fn resume_job(&mut self, guid: Guid) -> Result<Result<(), ResumeJobFailure>, Error> {
         match self {
-            Internal(client) => Ok(client.resume_job(guid)),
+            InProcess(client) => Ok(client.resume_job(guid)),
         }
     }
 
     pub fn set_job_priorty(
-        &self,
+        &mut self,
         guid: Guid,
         foreground: bool,
     ) -> Result<Result<(), SetJobPriorityFailure>, Error> {
         match self {
-            Internal(client) => Ok(client.set_job_priorty(guid, foreground)),
+            InProcess(client) => Ok(client.set_job_priorty(guid, foreground)),
         }
     }
 
     pub fn set_update_interval(
-        &self,
+        &mut self,
         guid: Guid,
         interval_millis: u32,
     ) -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
         match self {
-            Internal(client) => Ok(client.set_update_interval(guid, interval_millis)),
+            InProcess(client) => Ok(client.set_update_interval(guid, interval_millis)),
         }
     }
 
-    pub fn stop_update(&self, guid: Guid)
+    pub fn stop_update(&mut self, guid: Guid)
         -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
         match self {
-            Internal(client) => Ok(client.stop_update(guid)),
+            InProcess(client) => Ok(client.stop_update(guid)),
         }
     }
 
-    pub fn complete_job(&self, guid: Guid) -> Result<Result<(), CompleteJobFailure>, Error> {
+    pub fn complete_job(&mut self, guid: Guid) -> Result<Result<(), CompleteJobFailure>, Error> {
         match self {
-            Internal(client) => Ok(client.complete_job(guid)),
+            InProcess(client) => Ok(client.complete_job(guid)),
         }
     }
 
-    pub fn cancel_job(&self, guid: Guid) -> Result<Result<(), CancelJobFailure>, Error> {
+    pub fn cancel_job(&mut self, guid: Guid) -> Result<Result<(), CancelJobFailure>, Error> {
         match self {
-            Internal(client) => Ok(client.cancel_job(guid)),
+            InProcess(client) => Ok(client.cancel_job(guid)),
         }
     }
 }
 
 pub enum BitsMonitorClient {
-    Internal(in_process::InternalMonitor),
+    InProcess(in_process::InProcessMonitor),
 }
 
 impl BitsMonitorClient {
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<BitsJobStatus, Error> {
         match self {
-            BitsMonitorClient::Internal(client) => client.get_status(timeout_millis),
+            BitsMonitorClient::InProcess(client) => client.get_status(timeout_millis),
         }
     }
 }

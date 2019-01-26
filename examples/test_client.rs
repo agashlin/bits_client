@@ -9,7 +9,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::process;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bits::{BG_JOB_STATE_CONNECTING, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR};
 use guid_win::Guid;
@@ -47,7 +47,7 @@ fn usage() -> String {
             "  bits-fg <GUID>\n",
             "  bits-resume <GUID>\n",
             "  bits-complete <GUID>\n",
-            "  bits-cancel <GUID>\n"
+            "  bits-cancel <GUID> ...\n"
         ),
         EXE_NAME
     )
@@ -72,16 +72,20 @@ fn entry() -> Result {
     match cmd {
         // command line client for testing
         "bits-start" if cmd_args.len() == 2 => {
-            bits_start(Arc::new(client), cmd_args[0].clone(), cmd_args[1].clone())
+            bits_start(Arc::new(Mutex::new(client)), cmd_args[0].clone(), cmd_args[1].clone())
         }
-        "bits-monitor" if cmd_args.len() == 1 => bits_monitor(Arc::new(client), &cmd_args[0]),
+        "bits-monitor" if cmd_args.len() == 1 => bits_monitor(Arc::new(Mutex::new(client)), &cmd_args[0]),
         // TODO: some way of testing set update interval
-        "bits-bg" if cmd_args.len() == 1 => bits_bg(&client, &cmd_args[0]),
-        "bits-fg" if cmd_args.len() == 1 => bits_fg(&client, &cmd_args[0]),
-        "bits-resume" if cmd_args.len() == 1 => bits_resume(&client, &cmd_args[0]),
-        "bits-complete" if cmd_args.len() == 1 => bits_complete(&client, &cmd_args[0]),
-        "bits-cancel" if cmd_args.len() == 1 => bits_cancel(&client, &cmd_args[0]),
-
+        "bits-bg" if cmd_args.len() == 1 => bits_bg(&mut client, &cmd_args[0]),
+        "bits-fg" if cmd_args.len() == 1 => bits_fg(&mut client, &cmd_args[0]),
+        "bits-resume" if cmd_args.len() == 1 => bits_resume(&mut client, &cmd_args[0]),
+        "bits-complete" if cmd_args.len() == 1 => bits_complete(&mut client, &cmd_args[0]),
+        "bits-cancel" if cmd_args.len() >= 1 => {
+            for guid in cmd_args {
+                bits_cancel(&mut client, guid)?;
+            }
+            Ok(())
+        }
         _ => {
             eprintln!("{}", usage());
             bail!("usage error");
@@ -89,8 +93,8 @@ fn entry() -> Result {
     }
 }
 
-fn bits_start(client: Arc<BitsClient>, url: OsString, save_path: OsString) -> Result {
-    let result = match client.start_job(url, save_path, 10 * 60 * 1000) {
+fn bits_start(client: Arc<Mutex<BitsClient>>, url: OsString, save_path: OsString) -> Result {
+    let result = match client.lock().unwrap().start_job(url, save_path, 10 * 60 * 1000) {
         Ok(r) => r,
         Err(e) => {
             let _ = e.clone();
@@ -111,9 +115,9 @@ fn bits_start(client: Arc<BitsClient>, url: OsString, save_path: OsString) -> Re
     }
 }
 
-fn bits_monitor(client: Arc<BitsClient>, guid: &OsStr) -> Result {
+fn bits_monitor(client: Arc<Mutex<BitsClient>>, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
-    let result = client.monitor_job(guid.clone(), 1000)?;
+    let result = client.lock().unwrap().monitor_job(guid.clone(), 1000)?;
     match result {
         Ok(monitor_client) => {
             println!("monitor success");
@@ -124,8 +128,11 @@ fn bits_monitor(client: Arc<BitsClient>, guid: &OsStr) -> Result {
     }
 }
 
+fn _check_client_send() where BitsClient: Send {}
+fn _check_monitor_send() where BitsMonitorClient: Send {}
+
 fn monitor_loop(
-    client: Arc<BitsClient>,
+    client: Arc<Mutex<BitsClient>>,
     mut monitor_client: BitsMonitorClient,
     guid: Guid,
     wait_millis: u32) -> Result {
@@ -133,7 +140,7 @@ fn monitor_loop(
     let client_for_handler = client.clone();
     ctrlc::set_handler(move || {
         eprintln!("Ctrl-C!");
-        client_for_handler.stop_update(guid.clone());
+        let _ = client_for_handler.lock().unwrap().stop_update(guid.clone());
     }).expect("Error setting Ctrl-C handler");
 
     loop {
@@ -149,18 +156,20 @@ fn monitor_loop(
         }
     }
     println!("monitor loop ending");
+    println!("sleeping...");
+    std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
 }
 
-fn bits_bg(client: &BitsClient, guid: &OsStr) -> Result {
+fn bits_bg(client: &mut BitsClient, guid: &OsStr) -> Result {
     bits_set_priority(client, guid, false)
 }
 
-fn bits_fg(client: &BitsClient, guid: &OsStr) -> Result {
+fn bits_fg(client: &mut BitsClient, guid: &OsStr) -> Result {
     bits_set_priority(client, guid, true)
 }
 
-fn bits_set_priority(client: &BitsClient, guid: &OsStr, foreground: bool) -> Result {
+fn bits_set_priority(client: &mut BitsClient, guid: &OsStr, foreground: bool) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.set_job_priorty(guid, foreground)? {
         Ok(()) => Ok(()),
@@ -168,7 +177,7 @@ fn bits_set_priority(client: &BitsClient, guid: &OsStr, foreground: bool) -> Res
     }
 }
 
-fn bits_resume(client: &BitsClient, guid: &OsStr) -> Result {
+fn bits_resume(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.resume_job(guid)? {
         Ok(()) => Ok(()),
@@ -176,7 +185,7 @@ fn bits_resume(client: &BitsClient, guid: &OsStr) -> Result {
     }
 }
 
-fn bits_complete(client: &BitsClient, guid: &OsStr) -> Result {
+fn bits_complete(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.complete_job(guid)? {
         Ok(()) => Ok(()),
@@ -184,7 +193,7 @@ fn bits_complete(client: &BitsClient, guid: &OsStr) -> Result {
     }
 }
 
-fn bits_cancel(client: &BitsClient, guid: &OsStr) -> Result {
+fn bits_cancel(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.cancel_job(guid)? {
         Ok(()) => Ok(()),

@@ -39,6 +39,8 @@ pub use winapi::um::bits::{
     BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR,
 };
 
+pub use winapi::shared::winerror::E_FAIL;
+
 type Result<T> = result::Result<T, Error>;
 
 // temporarily here until https://github.com/retep998/winapi-rs/pull/704 is available
@@ -80,6 +82,8 @@ impl BackgroundCopyManager {
 }
 
 pub struct BitsJob(ComPtr<IBackgroundCopyJob>);
+
+unsafe impl Send for BitsJob {}
 
 impl BitsJob {
     pub fn guid(&self) -> Result<Guid> {
@@ -148,7 +152,6 @@ impl BitsJob {
         transferred_cb: Option<Box<callback::TransferredCallback>>,
         error_cb: Option<Box<callback::ErrorCallback>>,
         modification_cb: Option<Box<callback::ModificationCallback>>,
-        unregistered_cb: Option<Box<callback::UnregisteredCallback>>,
     ) -> Result<()>
 where {
         let mut flags = 0;
@@ -167,7 +170,6 @@ where {
             transferred_cb,
             error_cb,
             modification_cb,
-            unregistered_cb,
         )?;
 
         unsafe { com_call!(self.0, IBackgroundCopyJob::SetNotifyFlags(flags)) }?;
@@ -175,7 +177,7 @@ where {
         Ok(())
     }
 
-    pub fn clear_callbacks(&mut self) -> Result<()> {
+    fn _clear_callbacks(&mut self) -> Result<()> {
         unsafe {
             com_call!(self.0, IBackgroundCopyJob::SetNotifyFlags(BG_NOTIFY_DISABLE))?;
 
