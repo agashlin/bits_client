@@ -11,15 +11,17 @@ extern crate serde_derive;
 mod callback;
 pub mod status;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::mem;
 use std::ptr;
 use std::result;
 
 use comedy::com::create_instance_local_server;
-use comedy::error::{Error, ResultExt};
+use comedy::error::{Error, ErrorCode, FileLine, ResultExt};
+use comedy::handle::CoTaskMem;
 use comedy::{com_call, com_call_getter};
 use guid_win::Guid;
+use winapi::shared::ntdef::LPWSTR;
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, BG_JOB_PRIORITY,
     BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
@@ -29,7 +31,7 @@ use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::RIDL;
 use wio::com::ComPtr;
-use wio::wide::ToWide;
+use wio::wide::{FromWide, ToWide};
 
 pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
 
@@ -78,6 +80,36 @@ impl BackgroundCopyManager {
                 .map(|job| Some(BitsJob(job)))
                 .allow_hresult(BG_E_NOT_FOUND as i32, None)?,
         )
+    }
+
+    pub fn get_job_by_guid_and_name(
+        &self,
+        guid: &Guid,
+        match_name: &OsStr,
+    ) -> Result<Option<BitsJob>> {
+        if let Some(BitsJob(job)) = self.get_job_by_guid(guid)? {
+            let job_name = unsafe {
+                let mut job_name = ptr::null_mut() as LPWSTR;
+
+                com_call!(job, IBackgroundCopyJob::GetDisplayName(&mut job_name))?;
+
+                let _job_name_handle = CoTaskMem::wrap(job_name as *mut _).map_err(|()| Error {
+                    code: Some(ErrorCode::NullPtr),
+                    function: Some("IBackgroundCopyJob::GetDisplayName"),
+                    file_line: Some(FileLine(file!(), line!())),
+                })?;
+
+                OsString::from_wide_ptr_null(job_name)
+            };
+
+            if job_name == match_name {
+                Ok(Some(BitsJob(job)))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
 

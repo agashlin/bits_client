@@ -16,11 +16,12 @@ use bits_protocol::*;
 use self::InProcessMonitorMessage::*;
 use super::Error;
 
+// This is a macro in order to use whatever NotFound is in scope.
 macro_rules! get_job {
-    ($guid:expr) => {{
+    ($guid:expr, $name:expr) => {{
         let bcm = BackgroundCopyManager::connect().map_err(|e| Other(e.to_string()))?;
 
-        bcm.get_job_by_guid($guid)
+        bcm.get_job_by_guid_and_name($guid, $name)
             .map_err(|e| GetJob(e.get_hresult().unwrap()))?
             .ok_or(NotFound)?
     }};
@@ -54,6 +55,7 @@ impl InProcessClient {
     ) -> Result<(StartJobSuccess, InProcessMonitor), StartJobFailure> {
         use StartJobFailure::*;
 
+        // TODO normalize and verify path after append
         let mut full_path = self.save_path_prefix.clone();
         full_path.push(save_path.as_os_str());
 
@@ -86,10 +88,13 @@ impl InProcessClient {
     ) -> Result<InProcessMonitor, MonitorJobFailure> {
         use MonitorJobFailure::*;
 
-        let (client, control) = InProcessMonitor::new(get_job!(&guid), interval_millis)
-            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+        let (client, control) =
+            InProcessMonitor::new(get_job!(&guid, &self.job_name), interval_millis)
+                .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
-        // This will drop any preexisting monitor for the same guid
+        // Stop any preexisting monitor for the same guid
+        let _ = self.stop_update(guid.clone());
+
         self.monitors.insert(guid, control);
 
         Ok(client)
@@ -98,7 +103,7 @@ impl InProcessClient {
     pub fn resume_job(&mut self, guid: Guid) -> Result<(), ResumeJobFailure> {
         use ResumeJobFailure::*;
 
-        get_job!(&guid)
+        get_job!(&guid, &self.job_name)
             .resume()
             .map_err(|e| ResumeJob(e.get_hresult().unwrap()))?;
 
@@ -118,7 +123,7 @@ impl InProcessClient {
             BG_JOB_PRIORITY_NORMAL
         };
 
-        get_job!(&guid)
+        get_job!(&guid, &self.job_name)
             .set_priority(priority)
             .map_err(|e| ApplySettings(e.get_hresult().unwrap()))?;
 
@@ -176,7 +181,7 @@ impl InProcessClient {
     pub fn complete_job(&mut self, guid: Guid) -> Result<(), CompleteJobFailure> {
         use CompleteJobFailure::*;
 
-        get_job!(&guid)
+        get_job!(&guid, &self.job_name)
             .complete()
             .map_err(|e| CompleteJob(e.get_hresult().unwrap()))?;
 
@@ -186,7 +191,7 @@ impl InProcessClient {
     pub fn cancel_job(&mut self, guid: Guid) -> Result<(), CancelJobFailure> {
         use CancelJobFailure::*;
 
-        get_job!(&guid)
+        get_job!(&guid, &self.job_name)
             .cancel()
             .map_err(|e| CancelJob(e.get_hresult().unwrap()))?;
 

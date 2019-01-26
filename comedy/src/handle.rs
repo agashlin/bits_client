@@ -1,7 +1,8 @@
 use std::ops::Deref;
 
-use winapi::shared::minwindef::{DWORD, HLOCAL};
+use winapi::shared::minwindef::{DWORD, HLOCAL, LPVOID};
 use winapi::shared::ntdef::NULL;
+use winapi::um::combaseapi::CoTaskMemFree;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
 use winapi::um::winbase::LocalFree;
@@ -133,6 +134,41 @@ impl Drop for HLocal {
     fn drop(&mut self) {
         unsafe {
             LocalFree(self.0);
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct CoTaskMem(LPVOID);
+
+impl CoTaskMem {
+    /// Take ownership of COM task memory, which will be closed with `CoTaskMemFree` upon drop.
+    /// Checks for `NULL`.
+    ///
+    /// # Safety
+    ///
+    /// `p` should be the only copy of the pointer.
+    pub unsafe fn wrap(p: LPVOID) -> Result<CoTaskMem, ()> {
+        if p == NULL {
+            Err(())
+        } else {
+            Ok(CoTaskMem(p))
+        }
+    }
+}
+
+impl Deref for CoTaskMem {
+    type Target = LPVOID;
+    fn deref(&self) -> &LPVOID {
+        &self.0
+    }
+}
+
+impl Drop for CoTaskMem {
+    fn drop(&mut self) {
+        unsafe {
+            CoTaskMemFree(self.0);
         }
     }
 }
