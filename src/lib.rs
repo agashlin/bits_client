@@ -11,11 +11,13 @@ mod in_process;
 use std::convert;
 use std::ffi;
 
-use bits::BitsJobStatus;
 use guid_win::Guid;
 
 use bits_protocol::*;
 use failure::Fail;
+
+pub use bits::status::{BitsErrorContext, BitsJobState};
+pub use bits::{BitsJobError, BitsJobProgress, BitsJobStatus};
 
 // These errors would come from a Local Service client, this structure properly lives in the
 // crate that deals with named pipes.

@@ -24,8 +24,9 @@ use guid_win::Guid;
 use winapi::shared::ntdef::LPWSTR;
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, BG_JOB_PRIORITY,
-    BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
-    BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
+    BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW, BG_JOB_PRIORITY_NORMAL,
+    BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSIENT_ERROR, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE,
+    BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
@@ -35,13 +36,15 @@ use wio::wide::{FromWide, ToWide};
 
 pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
 
-// reexport anything needed by clients here
-pub use winapi::um::bits::{
-    BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_NORMAL, BG_JOB_STATE_CONNECTING,
-    BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR,
-};
-
 pub use winapi::shared::winerror::E_FAIL;
+
+#[repr(u32)]
+pub enum BitsJobPriority {
+    Foreground = BG_JOB_PRIORITY_FOREGROUND,
+    High = BG_JOB_PRIORITY_HIGH,
+    Normal = BG_JOB_PRIORITY_NORMAL,
+    Low = BG_JOB_PRIORITY_LOW,
+}
 
 type Result<T> = result::Result<T, Error>;
 
@@ -153,8 +156,13 @@ impl BitsJob {
     // TODO
     //pub fn set_proxy()
 
-    pub fn set_priority(&mut self, priority: BG_JOB_PRIORITY) -> Result<()> {
-        unsafe { com_call!(self.0, IBackgroundCopyJob::SetPriority(priority)) }?;
+    pub fn set_priority(&mut self, priority: BitsJobPriority) -> Result<()> {
+        unsafe {
+            com_call!(
+                self.0,
+                IBackgroundCopyJob::SetPriority(priority as BG_JOB_PRIORITY)
+            )
+        }?;
         Ok(())
     }
 

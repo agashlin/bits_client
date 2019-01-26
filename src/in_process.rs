@@ -4,10 +4,7 @@ use std::ffi;
 use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use bits::{
-    BackgroundCopyManager, BitsJob, BitsJobStatus, BG_JOB_PRIORITY_FOREGROUND,
-    BG_JOB_PRIORITY_NORMAL, E_FAIL,
-};
+use bits::{BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, E_FAIL};
 use comedy::com::InitCom;
 use guid_win::Guid;
 
@@ -118,9 +115,9 @@ impl InProcessClient {
         use SetJobPriorityFailure::*;
 
         let priority = if foreground {
-            BG_JOB_PRIORITY_FOREGROUND
+            BitsJobPriority::Foreground
         } else {
-            BG_JOB_PRIORITY_NORMAL
+            BitsJobPriority::Normal
         };
 
         get_job!(&guid, &self.job_name)
@@ -243,8 +240,7 @@ impl InProcessMonitor {
 
         job.register_callbacks(Some(transferred_cb), Some(error_cb), None)?;
 
-        // Ignore set priority failure
-        let _ = job.set_priority(BG_JOB_PRIORITY_FOREGROUND);
+        let _ = job.set_priority(BitsJobPriority::Foreground);
 
         let monitor = InProcessMonitor {
             job,
@@ -263,7 +259,7 @@ impl InProcessMonitor {
 
     fn disconnect(&mut self) {
         if self.priority_boosted {
-            let _ = self.job.set_priority(BG_JOB_PRIORITY_NORMAL);
+            let _ = self.job.set_priority(BitsJobPriority::Normal);
             self.priority_boosted = false;
         }
 

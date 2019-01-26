@@ -1,4 +1,3 @@
-extern crate bits;
 extern crate bits_client;
 extern crate comedy;
 extern crate ctrlc;
@@ -11,11 +10,10 @@ use std::process;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use bits::{BG_JOB_STATE_CONNECTING, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR};
 use failure::bail;
 use guid_win::Guid;
 
-use bits_client::{BitsClient, BitsMonitorClient};
+use bits_client::{BitsClient, BitsJobState, BitsMonitorClient};
 
 type Result = std::result::Result<(), failure::Error>;
 
@@ -101,11 +99,7 @@ fn entry() -> Result {
 }
 
 fn bits_start(client: Arc<Mutex<BitsClient>>, url: OsString, save_path: OsString) -> Result {
-    let result = match client
-        .lock()
-        .unwrap()
-        .start_job(url, save_path, 10 * 60 * 1000)
-    {
+    let result = match client.lock().unwrap().start_job(url, save_path, 1000) {
         Ok(r) => r,
         Err(e) => {
             let _ = e.clone();
@@ -116,7 +110,7 @@ fn bits_start(client: Arc<Mutex<BitsClient>>, url: OsString, save_path: OsString
     match result {
         Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
-            monitor_loop(client, monitor_client, r.guid.clone(), 10 * 60 * 1000)?;
+            monitor_loop(client, monitor_client, r.guid.clone(), 1000)?;
             Ok(())
         }
         Err(e) => {
@@ -166,13 +160,13 @@ fn monitor_loop(
     loop {
         let status = monitor_client.get_status(wait_millis * 10)?;
 
-        println!("{:?}", status);
+        println!("{:?} {:?}", BitsJobState::from(status.state), status);
 
-        if !(status.state == BG_JOB_STATE_CONNECTING
-            || status.state == BG_JOB_STATE_TRANSFERRING
-            || status.state == BG_JOB_STATE_TRANSIENT_ERROR)
-        {
-            break;
+        match BitsJobState::from(status.state) {
+            BitsJobState::Connecting
+            | BitsJobState::Transferring
+            | BitsJobState::TransientError => {}
+            _ => break,
         }
     }
     println!("monitor loop ending");
