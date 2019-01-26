@@ -110,7 +110,7 @@ impl InProcessClient {
         Ok(())
     }
 
-    pub fn set_job_priorty(
+    pub fn set_job_priority(
         &mut self,
         guid: Guid,
         foreground: bool,
@@ -244,7 +244,6 @@ impl InProcessMonitor {
         job.register_callbacks(Some(transferred_cb), Some(error_cb), None)?;
 
         // Ignore set priority failure
-        eprintln!("setting priority to foreground");
         let _ = job.set_priority(BG_JOB_PRIORITY_FOREGROUND);
 
         let monitor = InProcessMonitor {
@@ -264,7 +263,6 @@ impl InProcessMonitor {
 
     fn disconnect(&mut self) {
         if self.priority_boosted {
-            eprintln!("setting priority back to normal");
             let _ = self.job.set_priority(BG_JOB_PRIORITY_NORMAL);
             self.priority_boosted = false;
         }

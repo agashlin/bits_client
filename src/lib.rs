@@ -91,13 +91,13 @@ impl BitsClient {
         }
     }
 
-    pub fn set_job_priorty(
+    pub fn set_job_priority(
         &mut self,
         guid: Guid,
         foreground: bool,
     ) -> Result<Result<(), SetJobPriorityFailure>, Error> {
         match self {
-            InProcess(client) => Ok(client.set_job_priorty(guid, foreground)),
+            InProcess(client) => Ok(client.set_job_priority(guid, foreground)),
         }
     }
 

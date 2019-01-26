@@ -191,7 +191,7 @@ fn bits_fg(client: &mut BitsClient, guid: &OsStr) -> Result {
 
 fn bits_set_priority(client: &mut BitsClient, guid: &OsStr, foreground: bool) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
-    match client.set_job_priorty(guid, foreground)? {
+    match client.set_job_priority(guid, foreground)? {
         Ok(()) => Ok(()),
         Err(e) => bail!("error from server {:?}", e),
     }
