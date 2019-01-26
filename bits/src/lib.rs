@@ -21,9 +21,9 @@ use comedy::error::{Error, ResultExt};
 use comedy::{com_call, com_call_getter};
 use guid_win::Guid;
 use winapi::um::bits::{
-    IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager,
-    BG_JOB_PRIORITY, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR,
-    BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
+    IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, BG_JOB_PRIORITY,
+    BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
+    BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
@@ -179,7 +179,10 @@ where {
 
     fn _clear_callbacks(&mut self) -> Result<()> {
         unsafe {
-            com_call!(self.0, IBackgroundCopyJob::SetNotifyFlags(BG_NOTIFY_DISABLE))?;
+            com_call!(
+                self.0,
+                IBackgroundCopyJob::SetNotifyFlags(BG_NOTIFY_DISABLE)
+            )?;
 
             self.set_notify_interface(ptr::null_mut() as *mut IUnknown)
         }
@@ -237,9 +240,7 @@ where {
     }
 
     unsafe fn set_notify_interface(&self, interface: *mut IUnknown) -> Result<()> {
-        com_call!(
-            self.0,
-            IBackgroundCopyJob::SetNotifyInterface(interface))?;
+        com_call!(self.0, IBackgroundCopyJob::SetNotifyInterface(interface))?;
         Ok(())
     }
 }

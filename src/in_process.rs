@@ -1,7 +1,7 @@
 use std::cmp;
 use std::collections::{hash_map, HashMap};
 use std::ffi;
-use std::sync::{Arc, mpsc, Mutex, Weak};
+use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
@@ -13,8 +13,8 @@ use guid_win::Guid;
 
 use bits_protocol::*;
 
-use super::Error;
 use self::InProcessMonitorMessage::*;
+use super::Error;
 
 macro_rules! get_job {
     ($guid:expr) => {{
@@ -125,7 +125,10 @@ impl InProcessClient {
         Ok(())
     }
 
-    fn get_monitor_control_sender(&mut self, guid: Guid) -> Option<Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>> {
+    fn get_monitor_control_sender(
+        &mut self,
+        guid: Guid,
+    ) -> Option<Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>> {
         if let hash_map::Entry::Occupied(occ) = self.monitors.entry(guid) {
             if let Some(sender) = occ.get().sender.upgrade() {
                 Some(sender)
@@ -146,7 +149,10 @@ impl InProcessClient {
         use SetUpdateIntervalFailure::*;
 
         if let Some(sender) = self.get_monitor_control_sender(guid) {
-            sender.lock().unwrap().send(InProcessMonitorMessage::SetInterval(interval_millis))
+            sender
+                .lock()
+                .unwrap()
+                .send(InProcessMonitorMessage::SetInterval(interval_millis))
                 .map_err(|_| NotFound)
         } else {
             Err(NotFound)
@@ -157,7 +163,10 @@ impl InProcessClient {
         use SetUpdateIntervalFailure::*;
 
         if let Some(sender) = self.get_monitor_control_sender(guid) {
-            sender.lock().unwrap().send(InProcessMonitorMessage::StopMonitor)
+            sender
+                .lock()
+                .unwrap()
+                .send(InProcessMonitorMessage::StopMonitor)
                 .map_err(|_| NotFound)
         } else {
             Err(NotFound)
@@ -217,22 +226,17 @@ impl InProcessMonitor {
         let transferred_cb = Box::new(move || {
             let sender = transferred_sender_mutex.lock().unwrap();
 
-            sender.send(JobTransferred)
-                .map_err(|_| E_FAIL)
+            sender.send(JobTransferred).map_err(|_| E_FAIL)
         });
 
         let error_sender_mutex = Mutex::new(sender.clone());
         let error_cb = Box::new(move || {
             let sender = error_sender_mutex.lock().unwrap();
 
-            sender.send(JobError)
-                .map_err(|_| E_FAIL)
+            sender.send(JobError).map_err(|_| E_FAIL)
         });
 
-        job.register_callbacks(
-            Some(transferred_cb),
-            Some(error_cb),
-            None)?;
+        job.register_callbacks(Some(transferred_cb), Some(error_cb), None)?;
 
         // Ignore set priority failure
         eprintln!("setting priority to foreground");
@@ -267,9 +271,7 @@ impl InProcessMonitor {
         self.last_status = Some(Instant::now());
         let result = self.job.get_status();
         match result {
-            Ok(status) => {
-                Ok(status)
-            }
+            Ok(status) => Ok(status),
             Err(_) => {
                 self.disconnect();
                 Err(Error::NotConnected)
@@ -304,7 +306,12 @@ impl InProcessMonitor {
                 return self.get_status_now();
             }
 
-            match self.receiver.as_ref().unwrap().recv_timeout(wait_until.unwrap() - now) {
+            match self
+                .receiver
+                .as_ref()
+                .unwrap()
+                .recv_timeout(wait_until.unwrap() - now)
+            {
                 Ok(StopMonitor) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                     // Disconnection, drop the receiver.
                     self.disconnect();

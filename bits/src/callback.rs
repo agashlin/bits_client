@@ -18,8 +18,7 @@ use BitsJob;
 
 pub type TransferredCallback =
     (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
-pub type ErrorCallback =
-    (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
+pub type ErrorCallback = (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
 pub type ModificationCallback =
     (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
 
@@ -37,20 +36,20 @@ impl BackgroundCopyCallback {
         job: &mut BitsJob,
         transferred_cb: Option<Box<TransferredCallback>>,
         error_cb: Option<Box<ErrorCallback>>,
-        modification_cb: Option<Box<ModificationCallback>>) -> Result<(), Error>
-    {
+        modification_cb: Option<Box<ModificationCallback>>,
+    ) -> Result<(), Error> {
         let mut cb = Box::new(BackgroundCopyCallback {
-            interface: IBackgroundCopyCallback {
-                lpVtbl: &VTBL,
-            },
+            interface: IBackgroundCopyCallback { lpVtbl: &VTBL },
             rc: Mutex::new(1),
             transferred_cb,
             error_cb,
             modification_cb,
         });
 
-        assert!(&mut *cb as *mut BackgroundCopyCallback as *mut IUnknownVtbl ==
-                &mut cb.interface as *mut IBackgroundCopyCallback as *mut IUnknownVtbl);
+        assert!(
+            &mut *cb as *mut BackgroundCopyCallback as *mut IUnknownVtbl
+                == &mut cb.interface as *mut IBackgroundCopyCallback as *mut IUnknownVtbl
+        );
 
         let cb = Box::leak(cb) as *mut BackgroundCopyCallback as *mut IUnknown;
 
@@ -112,7 +111,6 @@ extern "system" fn release(this: *mut IUnknown) -> ULONG {
             return 1;
         }
 
-
         // rc will have been 0 when we get here.
         // re-Box in order to drop it.
         let _ = Box::from_raw(this as *mut BackgroundCopyCallback);
@@ -128,7 +126,7 @@ extern "system" fn transferred_stub(
     unsafe {
         let this = this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).transferred_cb {
-            match catch_unwind(|| { cb() }) {
+            match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
                 Ok(Err(hr)) => hr,
                 Err(_) => E_FAIL,
@@ -147,7 +145,7 @@ extern "system" fn error_stub(
     unsafe {
         let this = this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).error_cb {
-            match catch_unwind(|| { cb() }) {
+            match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
                 Ok(Err(hr)) => hr,
                 Err(_) => E_FAIL,
@@ -166,7 +164,7 @@ extern "system" fn modification_stub(
     unsafe {
         let this = this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).modification_cb {
-            match catch_unwind(|| { cb() }) {
+            match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
                 Ok(Err(hr)) => hr,
                 Err(_) => E_FAIL,

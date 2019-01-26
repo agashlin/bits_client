@@ -12,8 +12,8 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use bits::{BG_JOB_STATE_CONNECTING, BG_JOB_STATE_TRANSFERRING, BG_JOB_STATE_TRANSIENT_ERROR};
-use guid_win::Guid;
 use failure::bail;
+use guid_win::Guid;
 
 use bits_client::{BitsClient, BitsMonitorClient};
 
@@ -58,7 +58,10 @@ fn entry() -> Result {
     let mut args: Vec<_> = env::args_os().collect();
 
     let mut client = match () {
-        _ => BitsClient::new(OsString::from("JOBBO-2"), OsString::from("C:\\ProgramData\\"))?,
+        _ => BitsClient::new(
+            OsString::from("JOBBO-2"),
+            OsString::from("C:\\ProgramData\\"),
+        )?,
     };
 
     if args.len() < 2 {
@@ -71,10 +74,14 @@ fn entry() -> Result {
 
     match cmd {
         // command line client for testing
-        "bits-start" if cmd_args.len() == 2 => {
-            bits_start(Arc::new(Mutex::new(client)), cmd_args[0].clone(), cmd_args[1].clone())
+        "bits-start" if cmd_args.len() == 2 => bits_start(
+            Arc::new(Mutex::new(client)),
+            cmd_args[0].clone(),
+            cmd_args[1].clone(),
+        ),
+        "bits-monitor" if cmd_args.len() == 1 => {
+            bits_monitor(Arc::new(Mutex::new(client)), &cmd_args[0])
         }
-        "bits-monitor" if cmd_args.len() == 1 => bits_monitor(Arc::new(Mutex::new(client)), &cmd_args[0]),
         // TODO: some way of testing set update interval
         "bits-bg" if cmd_args.len() == 1 => bits_bg(&mut client, &cmd_args[0]),
         "bits-fg" if cmd_args.len() == 1 => bits_fg(&mut client, &cmd_args[0]),
@@ -94,7 +101,11 @@ fn entry() -> Result {
 }
 
 fn bits_start(client: Arc<Mutex<BitsClient>>, url: OsString, save_path: OsString) -> Result {
-    let result = match client.lock().unwrap().start_job(url, save_path, 10 * 60 * 1000) {
+    let result = match client
+        .lock()
+        .unwrap()
+        .start_job(url, save_path, 10 * 60 * 1000)
+    {
         Ok(r) => r,
         Err(e) => {
             let _ = e.clone();
@@ -128,20 +139,29 @@ fn bits_monitor(client: Arc<Mutex<BitsClient>>, guid: &OsStr) -> Result {
     }
 }
 
-fn _check_client_send() where BitsClient: Send {}
-fn _check_monitor_send() where BitsMonitorClient: Send {}
+fn _check_client_send()
+where
+    BitsClient: Send,
+{
+}
+fn _check_monitor_send()
+where
+    BitsMonitorClient: Send,
+{
+}
 
 fn monitor_loop(
     client: Arc<Mutex<BitsClient>>,
     mut monitor_client: BitsMonitorClient,
     guid: Guid,
-    wait_millis: u32) -> Result {
-
+    wait_millis: u32,
+) -> Result {
     let client_for_handler = client.clone();
     ctrlc::set_handler(move || {
         eprintln!("Ctrl-C!");
         let _ = client_for_handler.lock().unwrap().stop_update(guid.clone());
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 
     loop {
         let status = monitor_client.get_status(wait_millis * 10)?;

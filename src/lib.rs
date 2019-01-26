@@ -50,10 +50,14 @@ use BitsClient::*;
 
 impl BitsClient {
     /// Create an in-process BitsClient.
-    pub fn new(job_name: ffi::OsString, save_path_prefix: ffi::OsString)
-        -> Result<BitsClient, Error>
-    {
-        Ok(InProcess(in_process::InProcessClient::new(job_name, save_path_prefix)?))
+    pub fn new(
+        job_name: ffi::OsString,
+        save_path_prefix: ffi::OsString,
+    ) -> Result<BitsClient, Error> {
+        Ok(InProcess(in_process::InProcessClient::new(
+            job_name,
+            save_path_prefix,
+        )?))
     }
 
     pub fn start_job(
@@ -63,10 +67,9 @@ impl BitsClient {
         monitor_interval_millis: u32,
     ) -> Result<Result<(StartJobSuccess, BitsMonitorClient), StartJobFailure>, Error> {
         match self {
-            InProcess(client) => {
-                Ok(client.start_job(url, save_path, monitor_interval_millis)
-                    .map(|(success, monitor)| (success, BitsMonitorClient::InProcess(monitor))))
-            }
+            InProcess(client) => Ok(client
+                .start_job(url, save_path, monitor_interval_millis)
+                .map(|(success, monitor)| (success, BitsMonitorClient::InProcess(monitor)))),
         }
     }
 
@@ -108,8 +111,10 @@ impl BitsClient {
         }
     }
 
-    pub fn stop_update(&mut self, guid: Guid)
-        -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
+    pub fn stop_update(
+        &mut self,
+        guid: Guid,
+    ) -> Result<Result<(), SetUpdateIntervalFailure>, Error> {
         match self {
             InProcess(client) => Ok(client.stop_update(guid)),
         }
