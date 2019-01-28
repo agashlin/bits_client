@@ -34,11 +34,19 @@ pub struct MonitorConfig {
     pub interval_millis: u32,
 }
 
+#[derive(Clone, Debug)]
+pub enum ProxyUsage {
+    Preconfig,
+    NoProxy,
+    AutoDetect,
+}
+
 // Start Job
 #[derive(Clone, Debug)]
 pub struct StartJobCommand {
     pub url: OsString,
     pub save_path: OsString,
+    pub proxy_usage: ProxyUsage,
     pub monitor: Option<MonitorConfig>,
 }
 

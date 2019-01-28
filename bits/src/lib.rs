@@ -25,8 +25,10 @@ use winapi::shared::ntdef::LPWSTR;
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, BG_JOB_PRIORITY,
     BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW, BG_JOB_PRIORITY_NORMAL,
-    BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSIENT_ERROR, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE,
-    BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
+    BG_JOB_PROXY_USAGE, BG_JOB_PROXY_USAGE_AUTODETECT, BG_JOB_PROXY_USAGE_NO_PROXY,
+    BG_JOB_PROXY_USAGE_PRECONFIG, BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSIENT_ERROR,
+    BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
+    BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
@@ -44,6 +46,13 @@ pub enum BitsJobPriority {
     High = BG_JOB_PRIORITY_HIGH,
     Normal = BG_JOB_PRIORITY_NORMAL,
     Low = BG_JOB_PRIORITY_LOW,
+}
+
+#[repr(u32)]
+pub enum BitsProxyUsage {
+    NoProxy = BG_JOB_PROXY_USAGE_NO_PROXY,
+    Preconfig = BG_JOB_PROXY_USAGE_PRECONFIG,
+    AutoDetect = BG_JOB_PROXY_USAGE_AUTODETECT,
 }
 
 type Result<T> = result::Result<T, Error>;
@@ -153,8 +162,25 @@ impl BitsJob {
         Ok(())
     }
 
-    // TODO
-    //pub fn set_proxy()
+    pub fn set_proxy_usage(&mut self, usage: BitsProxyUsage) -> Result<()> {
+        use BitsProxyUsage::*;
+
+        match usage {
+            Preconfig | NoProxy | AutoDetect => {
+                unsafe {
+                    com_call!(
+                        self.0,
+                        IBackgroundCopyJob::SetProxySettings(
+                            usage as BG_JOB_PROXY_USAGE,
+                            ptr::null_mut(),
+                            ptr::null_mut(),
+                        )
+                    )
+                }?;
+                Ok(())
+            }
+        }
+    }
 
     pub fn set_priority(&mut self, priority: BitsJobPriority) -> Result<()> {
         unsafe {

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use failure::bail;
 use guid_win::Guid;
 
-use bits_client::{BitsClient, BitsJobState, BitsMonitorClient};
+use bits_client::{BitsClient, BitsJobState, BitsMonitorClient, BitsProxyUsage};
 
 type Result = std::result::Result<(), failure::Error>;
 
@@ -76,6 +76,7 @@ fn entry() -> Result {
             Arc::new(Mutex::new(client)),
             cmd_args[0].clone(),
             cmd_args[1].clone(),
+            BitsProxyUsage::NoProxy,
         ),
         "bits-monitor" if cmd_args.len() == 1 => {
             bits_monitor(Arc::new(Mutex::new(client)), &cmd_args[0])
@@ -98,8 +99,17 @@ fn entry() -> Result {
     }
 }
 
-fn bits_start(client: Arc<Mutex<BitsClient>>, url: OsString, save_path: OsString) -> Result {
-    let result = match client.lock().unwrap().start_job(url, save_path, 1000) {
+fn bits_start(
+    client: Arc<Mutex<BitsClient>>,
+    url: OsString,
+    save_path: OsString,
+    proxy_usage: BitsProxyUsage,
+) -> Result {
+    let result = match client
+        .lock()
+        .unwrap()
+        .start_job(url, save_path, proxy_usage, 1000)
+    {
         Ok(r) => r,
         Err(e) => {
             let _ = e.clone();

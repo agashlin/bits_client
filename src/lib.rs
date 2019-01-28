@@ -17,7 +17,7 @@ use bits_protocol::*;
 use failure::Fail;
 
 pub use bits::status::{BitsErrorContext, BitsJobState};
-pub use bits::{BitsJobError, BitsJobProgress, BitsJobStatus};
+pub use bits::{BitsJobError, BitsJobProgress, BitsJobStatus, BitsProxyUsage};
 
 // These errors would come from a Local Service client, this structure properly lives in the
 // crate that deals with named pipes.
@@ -66,11 +66,12 @@ impl BitsClient {
         &mut self,
         url: ffi::OsString,
         save_path: ffi::OsString,
+        proxy_usage: BitsProxyUsage,
         monitor_interval_millis: u32,
     ) -> Result<Result<(StartJobSuccess, BitsMonitorClient), StartJobFailure>, Error> {
         match self {
             InProcess(client) => Ok(client
-                .start_job(url, save_path, monitor_interval_millis)
+                .start_job(url, save_path, proxy_usage, monitor_interval_millis)
                 .map(|(success, monitor)| (success, BitsMonitorClient::InProcess(monitor)))),
         }
     }

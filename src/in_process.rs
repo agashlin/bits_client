@@ -4,7 +4,9 @@ use std::ffi;
 use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use bits::{BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, E_FAIL};
+use bits::{
+    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, E_FAIL,
+};
 use comedy::com::InitCom;
 use guid_win::Guid;
 
@@ -48,6 +50,7 @@ impl InProcessClient {
         &mut self,
         url: ffi::OsString,
         save_path: ffi::OsString,
+        proxy_usage: BitsProxyUsage,
         monitor_interval_millis: u32,
     ) -> Result<(StartJobSuccess, InProcessMonitor), StartJobFailure> {
         use StartJobFailure::*;
@@ -63,6 +66,9 @@ impl InProcessClient {
 
         let guid = job
             .guid()
+            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+
+        job.set_proxy_usage(proxy_usage)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         // TODO should the job be cleaned up if this fcn don't return success?
