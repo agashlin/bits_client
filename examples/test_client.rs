@@ -1,6 +1,5 @@
 extern crate bits_client;
 extern crate comedy;
-extern crate ctrlc;
 extern crate failure;
 extern crate guid_win;
 
@@ -155,17 +154,19 @@ where
 }
 
 fn monitor_loop(
-    client: Arc<Mutex<BitsClient>>,
+    _client: Arc<Mutex<BitsClient>>,
     mut monitor_client: BitsMonitorClient,
-    guid: Guid,
+    _guid: Guid,
     wait_millis: u32,
 ) -> Result {
+    /*
     let client_for_handler = client.clone();
     ctrlc::set_handler(move || {
         eprintln!("Ctrl-C!");
         let _ = client_for_handler.lock().unwrap().stop_update(guid.clone());
     })
     .expect("Error setting Ctrl-C handler");
+    */
 
     loop {
         let status = monitor_client.get_status(wait_millis * 10)?;
