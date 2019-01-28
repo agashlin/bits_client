@@ -1,16 +1,16 @@
 --- In-process ---
-- command line completion when not running
-  - this should probably just be a tiny exe
-  - should we try to automatically remove/restore this when monitoring?
-
 Build:
 - integration into build tree
 - config var
+- only build on Windows
 
 Testing:
 - tests for commands (many of these should probably be default skip)
 - HTTP server for the full effect? (to avoid depending on an external one,
   and to be able to fail controlledly)
+  - HTTP proxy?
+  - proxy detection?
+  - use existing test infra for this
 
 Support crates:
 - split out?
@@ -21,6 +21,8 @@ Support crates:
 
 Misc:
 - add job enumeration for BackgroundDownloadManager, mostly for cleanup purposes
+- probably want to convert all Windows stuff to some kind of wide string type instead of having
+  OsStr/OsString everywhere
 
 Priority:
 - look into the defaults
@@ -30,8 +32,12 @@ Priority:
 Notify callbacks:
 - MTA in Firefox...
 
-Monitor thread (server):
-- how to handle end of job by completion or cancelation, or just disappearing somehow?
+--- Later ---
+- command line completion when not running
+  - this should probably just be a tiny exe
+  - should we try to automatically remove/restore this when monitoring?
+
+- cleanup BITS jobs in uninstaller
 
 --- Separate task (for Local Service ownership) ---
 

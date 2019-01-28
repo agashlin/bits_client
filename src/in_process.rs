@@ -188,6 +188,8 @@ impl InProcessClient {
             .complete()
             .map_err(|e| CompleteJob(e.get_hresult().unwrap()))?;
 
+        let _ = self.stop_update(guid);
+
         Ok(())
     }
 
@@ -197,6 +199,8 @@ impl InProcessClient {
         get_job!(&guid, &self.job_name)
             .cancel()
             .map_err(|e| CancelJob(e.get_hresult().unwrap()))?;
+
+        let _ = self.stop_update(guid);
 
         Ok(())
     }
