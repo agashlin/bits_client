@@ -1,9 +1,4 @@
 --- In-process ---
-Build:
-- integration into build tree
-- config var
-- only build on Windows
-
 Testing:
 - tests for commands (many of these should probably be default skip)
 - HTTP server for the full effect? (to avoid depending on an external one,
@@ -20,9 +15,8 @@ Support crates:
 - wio?
 
 Misc:
-- add job enumeration for BackgroundDownloadManager, mostly for cleanup purposes
-- probably want to convert all Windows stuff to some kind of wide string type instead of having
-  OsStr/OsString everywhere
+- maybe convert all Windows stuff to some kind of wide string type instead of having
+  OsStr/OsString everywhere?
 
 Priority:
 - look into the defaults
@@ -37,8 +31,6 @@ Notify callbacks:
   - this should probably just be a tiny exe
   - should we try to automatically remove/restore this when monitoring?
 
-- cleanup BITS jobs in uninstaller
-
 --- Separate task (for Local Service ownership) ---
 
 Misc:
@@ -47,19 +39,20 @@ Misc:
 - validate download directory path
 - check whether the task successfully started
 - check pid of connecting client
-- get rid of catch/unwind stuff around callbacks?
 - source URL checking, or am I punting on this?
 - tests against protocol max size
+- stop monitor should close the client's end of the monitor pipe rather than relying exclusively on
+  the command succeeding
+
 
 Task:
 - name scheduled task
 - description?
 - pass log directory, download directory prefix, install path hash as args
   to task (ondemand command-connect etc). Will need escaping. $(Arg0) at the end.
+  - how will this work with possibly having different download prefixes later?
+  - Different job names?
 - pass path to executable as arg to install?
 - verify normal user can't modify the job with access we allow
 - look into the defaults
-  - task: when it should run (battery, idleness)
-
-Testing:
-- should be able to install/uninstall without Local Service ownership
+  - task: when it should be allowed to run (battery, idleness)
