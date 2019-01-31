@@ -16,7 +16,7 @@ use std::mem;
 use std::ptr;
 use std::result;
 
-use comedy::com::create_instance_local_server;
+use comedy::com::{create_instance_local_server, GlobalInterface, INIT_MTA};
 use comedy::error::{Error, ErrorCode, FileLine, ResultExt};
 use comedy::handle::CoTaskMem;
 use comedy::{com_call, com_call_getter};
@@ -65,6 +65,15 @@ pub struct BackgroundCopyManager(ComPtr<IBackgroundCopyManager>);
 
 impl BackgroundCopyManager {
     pub fn connect() -> Result<BackgroundCopyManager> {
+        // Methods do not have to check once we have successfully initialized COM once for the
+        // thread, as BackgroundCopyManager can only be used on one thread.
+        INIT_MTA.with(|com| {
+            if let Err(e) = com {
+                return Err(e.clone());
+            }
+            Ok(())
+        })?;
+
         Ok(BackgroundCopyManager(create_instance_local_server::<
             BcmClass,
             IBackgroundCopyManager,
@@ -127,9 +136,34 @@ impl BackgroundCopyManager {
 
 pub struct BitsJob(ComPtr<IBackgroundCopyJob>);
 
-unsafe impl Send for BitsJob {}
+// TODO probably want a better name for all the Global stuff
+pub type GlobalBitsJob = GlobalInterface<IBackgroundCopyJob>;
 
 impl BitsJob {
+    pub fn with_global(global: &GlobalInterface<IBackgroundCopyJob>) -> Result<BitsJob> {
+        INIT_MTA.with(|com| {
+            let com = match com {
+                Err(e) => return Err(e.clone()),
+                Ok(ref com) => com,
+            };
+
+            Ok(BitsJob(global.get(com)?))
+        })
+    }
+
+    pub fn to_global(self) ->
+        Result<GlobalInterface<IBackgroundCopyJob>>
+    {
+        INIT_MTA.with(|com| {
+            let com = match com {
+                Err(e) => return Err(e.clone()),
+                Ok(ref com) => com,
+            };
+
+            GlobalInterface::new(com, self.0)
+        })
+    }
+
     pub fn guid(&self) -> Result<Guid> {
         // TODO: cache on create or retrieved by GUID?
         unsafe {
@@ -219,7 +253,7 @@ impl BitsJob {
         error_cb: Option<Box<callback::ErrorCallback>>,
         modification_cb: Option<Box<callback::ModificationCallback>>,
     ) -> Result<()>
-where {
+    {
         let mut flags = 0;
         if transferred_cb.is_some() {
             flags |= BG_NOTIFY_JOB_TRANSFERRED;

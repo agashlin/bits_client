@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use bits::{
     BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, E_FAIL,
+    GlobalBitsJob,
 };
-use comedy::com::InitCom;
 use guid_win::Guid;
 
 use bits_protocol::*;
@@ -18,16 +18,15 @@ use super::Error;
 // This is a macro in order to use whatever NotFound is in scope.
 macro_rules! get_job {
     ($guid:expr, $name:expr) => {{
-        let bcm = BackgroundCopyManager::connect().map_err(|e| Other(e.to_string()))?;
-
-        bcm.get_job_by_guid_and_name($guid, $name)
+        BackgroundCopyManager::connect()
+            .map_err(|e| Other(e.to_string()))?
+            .get_job_by_guid_and_name($guid, $name)
             .map_err(|e| GetJob(e.get_hresult().unwrap()))?
             .ok_or(NotFound)?
     }};
 }
 
 pub struct InProcessClient {
-    _com: InitCom,
     job_name: ffi::OsString,
     save_path_prefix: ffi::OsString,
     monitors: HashMap<Guid, InProcessMonitorControl>,
@@ -39,7 +38,6 @@ impl InProcessClient {
         save_path_prefix: ffi::OsString,
     ) -> Result<InProcessClient, Error> {
         Ok(InProcessClient {
-            _com: InitCom::init_mta()?,
             job_name,
             save_path_prefix,
             monitors: HashMap::new(),
@@ -219,7 +217,7 @@ enum InProcessMonitorMessage {
 }
 
 pub struct InProcessMonitor {
-    job: BitsJob,
+    job: GlobalBitsJob,
     control_sender: Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>,
     receiver: Option<mpsc::Receiver<InProcessMonitorMessage>>,
     interval_millis: u32,
@@ -253,7 +251,7 @@ impl InProcessMonitor {
         let _ = job.set_priority(BitsJobPriority::Foreground);
 
         let monitor = InProcessMonitor {
-            job,
+            job: job.to_global()?,
             control_sender: Arc::new(Mutex::new(sender)),
             receiver: Some(receiver),
             interval_millis,
@@ -267,22 +265,25 @@ impl InProcessMonitor {
         Ok((monitor, control))
     }
 
-    fn disconnect(&mut self) {
+    fn disconnect(&mut self) -> Result<(), Error> {
         if self.priority_boosted {
-            let _ = self.job.set_priority(BitsJobPriority::Normal);
+            let _ = BitsJob::with_global(&self.job)?
+                .set_priority(BitsJobPriority::Normal);
             self.priority_boosted = false;
         }
 
         self.receiver = None;
+
+        Ok(())
     }
 
     fn get_status_now(&mut self) -> Result<BitsJobStatus, Error> {
         self.last_status = Some(Instant::now());
-        let result = self.job.get_status();
+        let result = BitsJob::with_global(&self.job)?.get_status();
         match result {
             Ok(status) => Ok(status),
             Err(_) => {
-                self.disconnect();
+                let _ = self.disconnect();
                 Err(Error::NotConnected)
             }
         }
@@ -323,7 +324,7 @@ impl InProcessMonitor {
             {
                 Ok(StopMonitor) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                     // Disconnection, drop the receiver.
-                    self.disconnect();
+                    let _ = self.disconnect();
                     return Err(Error::NotConnected);
                 }
                 Ok(SetInterval(new_millis)) => {
@@ -340,6 +341,7 @@ impl InProcessMonitor {
 
 impl Drop for InProcessMonitor {
     fn drop(&mut self) {
-        self.disconnect();
+        // NOTE: If we drop on a single thread apartment thread, this will not succeed.
+        let _ = self.disconnect();
     }
 }

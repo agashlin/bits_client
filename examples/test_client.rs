@@ -107,7 +107,7 @@ fn bits_start(
     let result = match client
         .lock()
         .unwrap()
-        .start_job(url, save_path, proxy_usage, 1000)
+        .start_job(url, save_path, proxy_usage, 10 * 60 * 1000)
     {
         Ok(r) => r,
         Err(e) => {
@@ -119,7 +119,7 @@ fn bits_start(
     match result {
         Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
-            monitor_loop(client, monitor_client, r.guid.clone(), 1000)?;
+            monitor_loop(client, monitor_client, r.guid.clone(), 10 * 60 * 1000)?;
             Ok(())
         }
         Err(e) => {
@@ -183,6 +183,7 @@ fn monitor_loop(
     println!("monitor loop ending");
     println!("sleeping...");
     std::thread::sleep(std::time::Duration::from_secs(1));
+
     Ok(())
 }
 
