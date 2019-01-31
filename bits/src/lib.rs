@@ -151,9 +151,7 @@ impl BitsJob {
         })
     }
 
-    pub fn to_global(self) ->
-        Result<GlobalInterface<IBackgroundCopyJob>>
-    {
+    pub fn to_global(self) -> Result<GlobalInterface<IBackgroundCopyJob>> {
         INIT_MTA.with(|com| {
             let com = match com {
                 Err(e) => return Err(e.clone()),
@@ -252,8 +250,7 @@ impl BitsJob {
         transferred_cb: Option<Box<callback::TransferredCallback>>,
         error_cb: Option<Box<callback::ErrorCallback>>,
         modification_cb: Option<Box<callback::ModificationCallback>>,
-    ) -> Result<()>
-    {
+    ) -> Result<()> {
         let mut flags = 0;
         if transferred_cb.is_some() {
             flags |= BG_NOTIFY_JOB_TRANSFERRED;

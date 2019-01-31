@@ -5,8 +5,8 @@ use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
-    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, E_FAIL,
-    GlobalBitsJob,
+    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, GlobalBitsJob,
+    E_FAIL,
 };
 use guid_win::Guid;
 
@@ -267,8 +267,7 @@ impl InProcessMonitor {
 
     fn disconnect(&mut self) -> Result<(), Error> {
         if self.priority_boosted {
-            let _ = BitsJob::with_global(&self.job)?
-                .set_priority(BitsJobPriority::Normal);
+            let _ = BitsJob::with_global(&self.job)?.set_priority(BitsJobPriority::Normal);
             self.priority_boosted = false;
         }
 

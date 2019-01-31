@@ -1,5 +1,5 @@
-use std::ptr;
 use std::marker::PhantomData;
+use std::ptr;
 use std::rc::Rc;
 use std::result::Result::*;
 
@@ -122,12 +122,14 @@ impl<T: Interface> GlobalInterface<T> {
         unsafe {
             let mut cookie = 0;
 
-            com_call!(git,
-                  IGlobalInterfaceTable::RegisterInterfaceInGlobal(
-                      v.as_raw() as *mut _,
-                      &T::uuidof(),
-                      &mut cookie,
-                      ))?;
+            com_call!(
+                git,
+                IGlobalInterfaceTable::RegisterInterfaceInGlobal(
+                    v.as_raw() as *mut _,
+                    &T::uuidof(),
+                    &mut cookie,
+                )
+            )?;
 
             Ok(GlobalInterface {
                 cookie,
@@ -140,12 +142,14 @@ impl<T: Interface> GlobalInterface<T> {
         let git = Self::get_git()?;
         unsafe {
             let mut raw_v = ptr::null_mut();
-            com_call!(git,
-                    IGlobalInterfaceTable::GetInterfaceFromGlobal(
-                        self.cookie,
-                        &T::uuidof(),
-                        &mut raw_v,
-                        ))?;
+            com_call!(
+                git,
+                IGlobalInterfaceTable::GetInterfaceFromGlobal(
+                    self.cookie,
+                    &T::uuidof(),
+                    &mut raw_v,
+                )
+            )?;
 
             Ok(ComPtr::from_raw(raw_v as *mut T))
         }
@@ -165,7 +169,7 @@ impl<T: Interface> Drop for GlobalInterface<T> {
                     Some(com)
                 } else {
                     // Couldn't initialize COM.
-                    return
+                    return;
                 };
 
                 match Self::get_git() {
@@ -179,7 +183,10 @@ impl<T: Interface> Drop for GlobalInterface<T> {
         };
 
         unsafe {
-            let _ = com_call!(git, IGlobalInterfaceTable::RevokeInterfaceFromGlobal(self.cookie));
+            let _ = com_call!(
+                git,
+                IGlobalInterfaceTable::RevokeInterfaceFromGlobal(self.cookie)
+            );
         }
     }
 }
