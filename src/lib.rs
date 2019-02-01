@@ -107,6 +107,13 @@ impl BitsClient {
         }
     }
 
+    /// Suspend job `guid`.
+    pub fn suspend_job(&mut self, guid: Guid) -> Result<Result<(), SuspendJobFailure>, Error> {
+        match self {
+            InProcess(client) => Ok(client.suspend_job(guid)),
+        }
+    }
+
     /// Resume job `guid`.
     pub fn resume_job(&mut self, guid: Guid) -> Result<Result<(), ResumeJobFailure>, Error> {
         match self {

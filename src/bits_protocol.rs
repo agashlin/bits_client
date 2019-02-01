@@ -15,6 +15,7 @@ pub const PROTOCOL_VERSION: u8 = 0;
 pub enum Command {
     StartJob(StartJobCommand),
     MonitorJob(MonitorJobCommand),
+    SuspendJob(SuspendJobCommand),
     ResumeJob(ResumeJobCommand),
     SetJobPriority(SetJobPriorityCommand),
     SetUpdateInterval(SetUpdateIntervalCommand),
@@ -95,6 +96,29 @@ impl CommandType for MonitorJobCommand {
     type Failure = MonitorJobFailure;
     fn new(cmd: Self) -> Command {
         Command::MonitorJob(cmd)
+    }
+}
+
+// Suspend Job
+#[derive(Clone, Debug)]
+pub struct SuspendJobCommand {
+    pub guid: Guid,
+}
+
+#[derive(Clone, Debug)]
+pub enum SuspendJobFailure {
+    NotFound,
+    GetJob(HRESULT),
+    SuspendJob(HRESULT),
+    OtherBITS(HRESULT),
+    Other(String),
+}
+
+impl CommandType for SuspendJobCommand {
+    type Success = ();
+    type Failure = SuspendJobFailure;
+    fn new(cmd: Self) -> Command {
+        Command::SuspendJob(cmd)
     }
 }
 

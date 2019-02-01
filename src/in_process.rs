@@ -101,6 +101,16 @@ impl InProcessClient {
         Ok(client)
     }
 
+    pub fn suspend_job(&mut self, guid: Guid) -> Result<(), SuspendJobFailure> {
+        use SuspendJobFailure::*;
+
+        get_job!(&guid, &self.job_name)
+            .suspend()
+            .map_err(|e| SuspendJob(e.get_hresult().unwrap()))?;
+
+        Ok(())
+    }
+
     pub fn resume_job(&mut self, guid: Guid) -> Result<(), ResumeJobFailure> {
         use ResumeJobFailure::*;
 

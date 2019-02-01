@@ -42,6 +42,7 @@ fn usage() -> String {
             "  bits-monitor <GUID>\n",
             "  bits-bg <GUID>\n",
             "  bits-fg <GUID>\n",
+            "  bits-suspend <GUID>\n",
             "  bits-resume <GUID>\n",
             "  bits-complete <GUID>\n",
             "  bits-cancel <GUID> ...\n"
@@ -75,7 +76,7 @@ fn entry() -> Result {
             Arc::new(Mutex::new(client)),
             cmd_args[0].clone(),
             cmd_args[1].clone(),
-            BitsProxyUsage::NoProxy,
+            BitsProxyUsage::Preconfig,
         ),
         "bits-monitor" if cmd_args.len() == 1 => {
             bits_monitor(Arc::new(Mutex::new(client)), &cmd_args[0])
@@ -83,6 +84,7 @@ fn entry() -> Result {
         // TODO: some way of testing set update interval
         "bits-bg" if cmd_args.len() == 1 => bits_bg(&mut client, &cmd_args[0]),
         "bits-fg" if cmd_args.len() == 1 => bits_fg(&mut client, &cmd_args[0]),
+        "bits-suspend" if cmd_args.len() == 1 => bits_suspend(&mut client, &cmd_args[0]),
         "bits-resume" if cmd_args.len() == 1 => bits_resume(&mut client, &cmd_args[0]),
         "bits-complete" if cmd_args.len() == 1 => bits_complete(&mut client, &cmd_args[0]),
         "bits-cancel" if cmd_args.len() >= 1 => {
@@ -107,7 +109,7 @@ fn bits_start(
     let result = match client
         .lock()
         .unwrap()
-        .start_job(url, save_path, proxy_usage, 10 * 60 * 1000)
+        .start_job(url, save_path, proxy_usage, 1000)
     {
         Ok(r) => r,
         Err(e) => {
@@ -119,7 +121,7 @@ fn bits_start(
     match result {
         Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
-            monitor_loop(client, monitor_client, r.guid.clone(), 10 * 60 * 1000)?;
+            monitor_loop(client, monitor_client, r.guid.clone(), 1000)?;
             Ok(())
         }
         Err(e) => {
@@ -198,6 +200,14 @@ fn bits_fg(client: &mut BitsClient, guid: &OsStr) -> Result {
 fn bits_set_priority(client: &mut BitsClient, guid: &OsStr, foreground: bool) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.set_job_priority(guid, foreground)? {
+        Ok(()) => Ok(()),
+        Err(e) => bail!("error from server {:?}", e),
+    }
+}
+
+fn bits_suspend(client: &mut BitsClient, guid: &OsStr) -> Result {
+    let guid = Guid::from_str(&guid.to_string_lossy())?;
+    match client.suspend_job(guid)? {
         Ok(()) => Ok(()),
         Err(e) => bail!("error from server {:?}", e),
     }
