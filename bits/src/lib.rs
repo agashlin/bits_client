@@ -16,7 +16,7 @@ use std::mem;
 use std::ptr;
 use std::result;
 
-use comedy::com::{create_instance_local_server, GlobalInterface, INIT_MTA};
+use comedy::com::{create_instance_local_server, INIT_MTA};
 use comedy::error::{Error, ErrorCode, FileLine, ResultExt};
 use comedy::handle::CoTaskMem;
 use comedy::{com_call, com_call_getter};
@@ -95,20 +95,27 @@ impl BackgroundCopyManager {
         }
     }
 
-    pub fn get_job_by_guid(&self, guid: &Guid) -> Result<Option<BitsJob>> {
-        Ok(
-            unsafe { com_call_getter!(|job| self.0, IBackgroundCopyManager::GetJob(&guid.0, job)) }
-                .map(|job| Some(BitsJob(job)))
-                .allow_hresult(BG_E_NOT_FOUND as i32, None)?,
-        )
+    /// Returns Err if the job was not found.
+    pub fn get_job_by_guid(&self, guid: &Guid) -> Result<BitsJob> {
+        unsafe { com_call_getter!(|job| self.0, IBackgroundCopyManager::GetJob(&guid.0, job)) }
+            .map(|job| BitsJob(job))
     }
 
-    pub fn get_job_by_guid_and_name(
+    /// Returns Ok(None) if the job was not found but there was no other error.
+    pub fn find_job_by_guid(&self, guid: &Guid) -> Result<Option<BitsJob>> {
+        Ok(self
+            .get_job_by_guid(guid)
+            .map(|job| Some(job))
+            .allow_hresult(BG_E_NOT_FOUND as i32, None)?)
+    }
+
+    /// Returns Ok(None) if the job was not found, or if it had the wrong name.
+    pub fn find_job_by_guid_and_name(
         &self,
         guid: &Guid,
         match_name: &OsStr,
     ) -> Result<Option<BitsJob>> {
-        if let Some(BitsJob(job)) = self.get_job_by_guid(guid)? {
+        if let Some(BitsJob(job)) = self.find_job_by_guid(guid)? {
             let job_name = unsafe {
                 let mut job_name = ptr::null_mut() as LPWSTR;
 
@@ -136,32 +143,7 @@ impl BackgroundCopyManager {
 
 pub struct BitsJob(ComPtr<IBackgroundCopyJob>);
 
-// TODO probably want a better name for all the Global stuff
-pub type GlobalBitsJob = GlobalInterface<IBackgroundCopyJob>;
-
 impl BitsJob {
-    pub fn with_global(global: &GlobalInterface<IBackgroundCopyJob>) -> Result<BitsJob> {
-        INIT_MTA.with(|com| {
-            let com = match com {
-                Err(e) => return Err(e.clone()),
-                Ok(ref com) => com,
-            };
-
-            Ok(BitsJob(global.get(com)?))
-        })
-    }
-
-    pub fn to_global(self) -> Result<GlobalInterface<IBackgroundCopyJob>> {
-        INIT_MTA.with(|com| {
-            let com = match com {
-                Err(e) => return Err(e.clone()),
-                Ok(ref com) => com,
-            };
-
-            GlobalInterface::new(com, self.0)
-        })
-    }
-
     pub fn guid(&self) -> Result<Guid> {
         // TODO: cache on create or retrieved by GUID?
         unsafe {

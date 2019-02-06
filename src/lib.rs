@@ -11,13 +11,13 @@ mod in_process;
 use std::convert;
 use std::ffi;
 
-use guid_win::Guid;
-
 use bits_protocol::*;
 use failure::Fail;
 
 pub use bits::status::{BitsErrorContext, BitsJobState};
 pub use bits::{BitsJobError, BitsJobProgress, BitsJobStatus, BitsProxyUsage};
+pub use comedy::Error as ComedyError;
+pub use guid_win::Guid;
 
 // These errors would come from a Local Service client, this structure properly lives in the
 // crate that deals with named pipes.
@@ -30,11 +30,11 @@ pub enum PipeError {
     #[fail(display = "Should have written {} bytes, wrote {}", _0, _1)]
     WriteCount(usize, u32),
     #[fail(display = "Windows API error")]
-    Api(#[fail(cause)] comedy::Error),
+    Api(#[fail(cause)] ComedyError),
 }
 
-impl convert::From<comedy::Error> for PipeError {
-    fn from(err: comedy::Error) -> PipeError {
+impl convert::From<ComedyError> for PipeError {
+    fn from(err: ComedyError) -> PipeError {
         PipeError::Api(err)
     }
 }

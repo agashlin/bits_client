@@ -5,8 +5,7 @@ use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
-    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, GlobalBitsJob,
-    E_FAIL,
+    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, E_FAIL,
 };
 use guid_win::Guid;
 
@@ -15,12 +14,12 @@ use bits_protocol::*;
 use self::InProcessMonitorMessage::*;
 use super::Error;
 
-// This is a macro in order to use whatever NotFound is in scope.
+// This is a macro in order to use NotFound from whatever enum is in scope.
 macro_rules! get_job {
     ($guid:expr, $name:expr) => {{
         BackgroundCopyManager::connect()
             .map_err(|e| Other(e.to_string()))?
-            .get_job_by_guid_and_name($guid, $name)
+            .find_job_by_guid_and_name($guid, $name)
             .map_err(|e| GetJob(e.get_hresult().unwrap()))?
             .ok_or(NotFound)?
     }};
@@ -52,6 +51,7 @@ impl InProcessClient {
         monitor_interval_millis: u32,
     ) -> Result<(StartJobSuccess, InProcessMonitor), StartJobFailure> {
         use StartJobFailure::*;
+        // TODO should the job be cleaned up if this fcn can't return success?
 
         // TODO normalize and verify path after append
         let mut full_path = self.save_path_prefix.clone();
@@ -69,13 +69,12 @@ impl InProcessClient {
         job.set_proxy_usage(proxy_usage)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
-        // TODO should the job be cleaned up if this fcn don't return success?
+        let (client, control) = InProcessMonitor::new(&mut job, monitor_interval_millis)
+            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+
         job.add_file(&url, &full_path)
             .map_err(|e| AddFile(e.get_hresult().unwrap()))?;
         job.resume().map_err(|e| Resume(e.get_hresult().unwrap()))?;
-
-        let (client, control) = InProcessMonitor::new(job, monitor_interval_millis)
-            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         self.monitors.insert(guid.clone(), control);
 
@@ -90,7 +89,7 @@ impl InProcessClient {
         use MonitorJobFailure::*;
 
         let (client, control) =
-            InProcessMonitor::new(get_job!(&guid, &self.job_name), interval_millis)
+            InProcessMonitor::new(&mut get_job!(&guid, &self.job_name), interval_millis)
                 .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         // Stop any preexisting monitor for the same guid
@@ -227,7 +226,7 @@ enum InProcessMonitorMessage {
 }
 
 pub struct InProcessMonitor {
-    job: GlobalBitsJob,
+    guid: Guid,
     control_sender: Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>,
     receiver: Option<mpsc::Receiver<InProcessMonitorMessage>>,
     interval_millis: u32,
@@ -237,9 +236,11 @@ pub struct InProcessMonitor {
 
 impl InProcessMonitor {
     fn new(
-        mut job: BitsJob,
+        job: &mut BitsJob,
         interval_millis: u32,
     ) -> Result<(InProcessMonitor, InProcessMonitorControl), comedy::Error> {
+        let guid = job.guid()?;
+
         let (sender, receiver) = mpsc::channel();
 
         let transferred_sender_mutex = Mutex::new(sender.clone());
@@ -261,7 +262,7 @@ impl InProcessMonitor {
         let _ = job.set_priority(BitsJobPriority::Foreground);
 
         let monitor = InProcessMonitor {
-            job: job.to_global()?,
+            guid,
             control_sender: Arc::new(Mutex::new(sender)),
             receiver: Some(receiver),
             interval_millis,
@@ -275,9 +276,13 @@ impl InProcessMonitor {
         Ok((monitor, control))
     }
 
+    fn job(&self) -> Result<BitsJob, Error> {
+        Ok(BackgroundCopyManager::connect()?.get_job_by_guid(&self.guid)?)
+    }
+
     fn disconnect(&mut self) -> Result<(), Error> {
         if self.priority_boosted {
-            let _ = BitsJob::with_global(&self.job)?.set_priority(BitsJobPriority::Normal);
+            let _ = self.job()?.set_priority(BitsJobPriority::Normal);
             self.priority_boosted = false;
         }
 
@@ -288,7 +293,7 @@ impl InProcessMonitor {
 
     fn get_status_now(&mut self) -> Result<BitsJobStatus, Error> {
         self.last_status = Some(Instant::now());
-        let result = BitsJob::with_global(&self.job)?.get_status();
+        let result = self.job()?.get_status();
         match result {
             Ok(status) => Ok(status),
             Err(_) => {
