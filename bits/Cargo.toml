@@ -12,6 +12,7 @@ comedy = { path = "../comedy" }
 guid_win = { path = "../guid_win" }
 winapi = { version = "0.3.6", features = ["basetsd",
                                           "bits",
+                                          "bits5_0",
                                           "bitsmsg",
                                           "guiddef",
                                           "minwindef",
