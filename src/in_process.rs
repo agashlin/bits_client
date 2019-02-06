@@ -5,8 +5,7 @@ use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
-    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage,
-    BitsTransferPolicy, E_FAIL,
+    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, E_FAIL,
 };
 use guid_win::Guid;
 
@@ -69,10 +68,6 @@ impl InProcessClient {
 
         job.set_proxy_usage(proxy_usage)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
-
-        // Will fail before Windows 8
-        //let _ = job.set_transfer_policy(BitsTransferPolicy::Unrestricted);
-        let _ = job.set_transfer_policy(BitsTransferPolicy::Standard);
 
         let (client, control) = InProcessMonitor::new(&mut job, monitor_interval_millis)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;

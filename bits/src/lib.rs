@@ -30,12 +30,6 @@ use winapi::um::bits::{
     BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
     BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
-use winapi::um::bits5_0::{
-    IBackgroundCopyJob5, BITS_JOB_PROPERTY_ID, BITS_JOB_PROPERTY_ID_COST_FLAGS,
-    BITS_JOB_PROPERTY_VALUE, BITS_JOB_TRANSFER_POLICY, BITS_JOB_TRANSFER_POLICY_ALWAYS,
-    BITS_JOB_TRANSFER_POLICY_NOT_ROAMING, BITS_JOB_TRANSFER_POLICY_NO_SURCHARGE,
-    BITS_JOB_TRANSFER_POLICY_STANDARD, BITS_JOB_TRANSFER_POLICY_UNRESTRICTED,
-};
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::RIDL;
@@ -60,16 +54,6 @@ pub enum BitsProxyUsage {
     /// Default
     Preconfig = BG_JOB_PROXY_USAGE_PRECONFIG,
     AutoDetect = BG_JOB_PROXY_USAGE_AUTODETECT,
-}
-
-#[repr(u32)]
-pub enum BitsTransferPolicy {
-    /// Seems to be the default
-    Always = BITS_JOB_TRANSFER_POLICY_ALWAYS,
-    NotRoaming = BITS_JOB_TRANSFER_POLICY_NOT_ROAMING,
-    NoSurcharge = BITS_JOB_TRANSFER_POLICY_NO_SURCHARGE,
-    Standard = BITS_JOB_TRANSFER_POLICY_STANDARD,
-    Unrestricted = BITS_JOB_TRANSFER_POLICY_UNRESTRICTED,
 }
 
 type Result<T> = result::Result<T, Error>;
@@ -221,39 +205,6 @@ impl BitsJob {
             )
         }?;
         Ok(())
-    }
-
-    unsafe fn set_property(
-        &mut self,
-        id: BITS_JOB_PROPERTY_ID,
-        v: BITS_JOB_PROPERTY_VALUE,
-    ) -> Result<()> {
-        com_call!(
-            &comedy::com::cast(&self.0)?,
-            IBackgroundCopyJob5::SetProperty(id, v)
-        )?;
-        Ok(())
-    }
-
-    unsafe fn _get_property(
-        &mut self,
-        id: BITS_JOB_PROPERTY_ID,
-    ) -> Result<BITS_JOB_PROPERTY_VALUE> {
-        let mut v = mem::zeroed();
-        com_call!(
-            &comedy::com::cast(&self.0)?,
-            IBackgroundCopyJob5::GetProperty(id, &mut v)
-        )?;
-        Ok(v)
-    }
-
-    /// Not supported until Windows 8, Windows Server 2012.
-    pub fn set_transfer_policy(&mut self, policy: BitsTransferPolicy) -> Result<()> {
-        unsafe {
-            let mut v: BITS_JOB_PROPERTY_VALUE = mem::zeroed();
-            *v.Dword_mut() = policy as BITS_JOB_TRANSFER_POLICY;
-            self.set_property(BITS_JOB_PROPERTY_ID_COST_FLAGS, v)
-        }
     }
 
     pub fn resume(&mut self) -> Result<()> {
