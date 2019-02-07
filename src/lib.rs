@@ -126,10 +126,6 @@ impl BitsClient {
     /// `foreground == true` will set the priority to `BG_JOB_PRIORITY_FOREGROUND`,
     /// `false` will use the default `BG_JOB_PRIORITY_NORMAL`.
     /// See the Microsoft documentation for `BG_JOB_PRIORITY` for details.
-    ///
-    /// This is usually not needed if you have a `BitsMonitorClient`, which will boost the
-    /// priority to foreground as long as it is running, and return the priority to normal when
-    /// it stops.
     pub fn set_job_priority(
         &mut self,
         guid: Guid,
@@ -193,9 +189,6 @@ impl BitsMonitorClient {
     ///
     /// If there is an error or the job transfer completes, a result may be available sooner than
     /// the monitor interval.
-    ///
-    /// While the `BitsMonitorClient` is running the job's priority will be boosted to foreground,
-    /// if it is stopped or dropped the priority will be returned to background, if possible.
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<BitsJobStatus, Error> {
         match self {
             BitsMonitorClient::InProcess(client) => client.get_status(timeout_millis),
