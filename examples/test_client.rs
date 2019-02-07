@@ -1,5 +1,6 @@
 extern crate bits_client;
 extern crate comedy;
+//extern crate ctrlc;
 extern crate failure;
 extern crate guid_win;
 
@@ -106,10 +107,13 @@ fn bits_start(
     save_path: OsString,
     proxy_usage: BitsProxyUsage,
 ) -> Result {
+    let interval = 10 * 60 * 1000;
+    //let interval = 1000;
+
     let result = match client
         .lock()
         .unwrap()
-        .start_job(url, save_path, proxy_usage, 1000)
+        .start_job(url, save_path, proxy_usage, interval)
     {
         Ok(r) => r,
         Err(e) => {
@@ -121,7 +125,7 @@ fn bits_start(
     match result {
         Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
-            monitor_loop(client, monitor_client, r.guid.clone(), 1000)?;
+            monitor_loop(client, monitor_client, r.guid.clone(), interval)?;
             Ok(())
         }
         Err(e) => {
@@ -162,10 +166,10 @@ fn monitor_loop(
     wait_millis: u32,
 ) -> Result {
     /*
-    let client_for_handler = client.clone();
+    let client_for_handler = _client.clone();
     ctrlc::set_handler(move || {
         eprintln!("Ctrl-C!");
-        let _ = client_for_handler.lock().unwrap().stop_update(guid.clone());
+        let _ = client_for_handler.lock().unwrap().stop_update(_guid.clone());
     })
     .expect("Error setting Ctrl-C handler");
     */

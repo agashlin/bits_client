@@ -1,7 +1,7 @@
 use std::cmp;
 use std::collections::{hash_map, HashMap};
 use std::ffi;
-use std::sync::{mpsc, Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
@@ -11,7 +11,6 @@ use guid_win::Guid;
 
 use bits_protocol::*;
 
-use self::InProcessMonitorMessage::*;
 use super::Error;
 
 // This is a macro in order to use NotFound from whatever enum is in scope.
@@ -70,6 +69,10 @@ impl InProcessClient {
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         let (client, control) = InProcessMonitor::new(&mut job, monitor_interval_millis)
+            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+
+        // TODO: this will need to be optional eventually
+        job.set_priority(BitsJobPriority::Foreground)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
         job.add_file(&url, &full_path)
@@ -143,9 +146,9 @@ impl InProcessClient {
     fn get_monitor_control_sender(
         &mut self,
         guid: Guid,
-    ) -> Option<Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>> {
+    ) -> Option<Arc<ControlPair>> {
         if let hash_map::Entry::Occupied(occ) = self.monitors.entry(guid) {
-            if let Some(sender) = occ.get().sender.upgrade() {
+            if let Some(sender) = occ.get().0.upgrade() {
                 Some(sender)
             } else {
                 occ.remove_entry();
@@ -164,11 +167,10 @@ impl InProcessClient {
         use SetUpdateIntervalFailure::*;
 
         if let Some(sender) = self.get_monitor_control_sender(guid) {
-            sender
-                .lock()
-                .unwrap()
-                .send(InProcessMonitorMessage::SetInterval(interval_millis))
-                .map_err(|_| NotFound)
+            let mut s = sender.1.lock().unwrap();
+            s.interval_millis = interval_millis;
+            sender.0.notify_all();
+            Ok(())
         } else {
             Err(NotFound)
         }
@@ -178,11 +180,9 @@ impl InProcessClient {
         use SetUpdateIntervalFailure::*;
 
         if let Some(sender) = self.get_monitor_control_sender(guid) {
-            sender
-                .lock()
-                .unwrap()
-                .send(InProcessMonitorMessage::StopMonitor)
-                .map_err(|_| NotFound)
+            sender.1.lock().unwrap().shutdown = true;
+            sender.0.notify_all();
+            Ok(())
         } else {
             Err(NotFound)
         }
@@ -213,25 +213,23 @@ impl InProcessClient {
     }
 }
 
-struct InProcessMonitorControl {
-    sender: Weak<Mutex<mpsc::Sender<InProcessMonitorMessage>>>,
-}
+// The `Condvar` is notified when `InProcessMonitorVars` changes.
+type ControlPair = (Condvar, Mutex<InProcessMonitorVars>);
+struct InProcessMonitorControl(Weak<ControlPair>);
 
-enum InProcessMonitorMessage {
-    SetInterval(u32),
-    JobError,
-    JobTransferred,
-    #[allow(dead_code)]
-    StopMonitor,
+// see https://github.com/rust-lang/rust/issues/54768
+impl std::panic::RefUnwindSafe for InProcessMonitorControl {}
+
+struct InProcessMonitorVars {
+    interval_millis: u32,
+    notified: bool,
+    shutdown: bool,
 }
 
 pub struct InProcessMonitor {
+    vars: Arc<ControlPair>,
     guid: Guid,
-    control_sender: Arc<Mutex<mpsc::Sender<InProcessMonitorMessage>>>,
-    receiver: Option<mpsc::Receiver<InProcessMonitorMessage>>,
-    interval_millis: u32,
     last_status: Option<Instant>,
-    priority_boosted: bool,
 }
 
 impl InProcessMonitor {
@@ -241,36 +239,45 @@ impl InProcessMonitor {
     ) -> Result<(InProcessMonitor, InProcessMonitorControl), comedy::Error> {
         let guid = job.guid()?;
 
-        let (sender, receiver) = mpsc::channel();
+        let vars = Arc::new((Condvar::new(),
+            Mutex::new(InProcessMonitorVars {
+                interval_millis,
+                notified: false,
+                shutdown: false,
+            })));
 
-        let transferred_sender_mutex = Mutex::new(sender.clone());
+        let transferred_control = InProcessMonitorControl(Arc::downgrade(&vars));
         let transferred_cb = Box::new(move || {
-            let sender = transferred_sender_mutex.lock().unwrap();
-
-            sender.send(JobTransferred).map_err(|_| E_FAIL)
+            if let Some(control) = transferred_control.0.upgrade() {
+                if let Ok(mut vars) = control.1.lock() {
+                    vars.notified = true;
+                    control.0.notify_all();
+                    return Ok(());
+                }
+            }
+            Err(E_FAIL)
         });
 
-        let error_sender_mutex = Mutex::new(sender.clone());
+        let error_control = InProcessMonitorControl(Arc::downgrade(&vars));
         let error_cb = Box::new(move || {
-            let sender = error_sender_mutex.lock().unwrap();
-
-            sender.send(JobError).map_err(|_| E_FAIL)
+            if let Some(control) = error_control.0.upgrade() {
+                if let Ok(mut vars) = control.1.lock() {
+                    vars.notified = true;
+                    control.0.notify_all();
+                    return Ok(())
+                }
+            }
+            Err(E_FAIL)
         });
 
         job.register_callbacks(Some(transferred_cb), Some(error_cb), None)?;
 
-        //let _ = job.set_priority(BitsJobPriority::Foreground);
+        let control = InProcessMonitorControl(Arc::downgrade(&vars));
 
         let monitor = InProcessMonitor {
             guid,
-            control_sender: Arc::new(Mutex::new(sender)),
-            receiver: Some(receiver),
-            interval_millis,
+            vars,
             last_status: None,
-            priority_boosted: true,
-        };
-        let control = InProcessMonitorControl {
-            sender: Arc::downgrade(&monitor.control_sender),
         };
 
         Ok((monitor, control))
@@ -280,44 +287,27 @@ impl InProcessMonitor {
         Ok(BackgroundCopyManager::connect()?.get_job_by_guid(&self.guid)?)
     }
 
-    fn disconnect(&mut self) -> Result<(), Error> {
-        if self.priority_boosted {
-            let _ = self.job()?.set_priority(BitsJobPriority::Normal);
-            self.priority_boosted = false;
-        }
-
-        self.receiver = None;
-
-        Ok(())
-    }
-
-    fn get_status_now(&mut self) -> Result<BitsJobStatus, Error> {
-        self.last_status = Some(Instant::now());
-        let result = self.job()?.get_status();
-        match result {
-            Ok(status) => Ok(status),
-            Err(_) => {
-                let _ = self.disconnect();
-                Err(Error::NotConnected)
-            }
-        }
-    }
-
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<BitsJobStatus, Error> {
         let timeout = Duration::from_millis(timeout_millis as u64);
 
         let started = Instant::now();
 
-        loop {
-            if self.receiver.is_none() {
+        let result = loop {
+            let mut s = self.vars.1.lock().unwrap();
+
+            if s.shutdown {
+                // Already disconnected, return error.
                 return Err(Error::NotConnected);
             }
 
             if started.elapsed() > timeout {
-                return Err(Error::Timeout);
+                // Disconnect and return error.
+                break Err(Error::Timeout);
             }
 
-            let interval = Duration::from_millis(self.interval_millis as u64);
+            // Get the interval every pass through the loop, in case it has changed.
+            let interval = Duration::from_millis(s.interval_millis as u64);
+
             let wait_until = if let Some(last_status) = self.last_status {
                 Some(cmp::min(last_status + interval, started + timeout))
             } else {
@@ -326,36 +316,44 @@ impl InProcessMonitor {
 
             let now = Instant::now();
 
-            if wait_until.is_none() || wait_until.unwrap() < now {
-                return self.get_status_now();
+            if s.notified || wait_until.is_none() || wait_until.unwrap() < now {
+                // Aready notified, or this is the first status report, so
+                // immediately get status below.
+                s.notified = false;
+                break Ok(());
+            }
+            let wait_until = wait_until.unwrap();
+
+            // unwrap instead of handling PoisonError
+            let (mut s, _timeout_result) = self.vars.0.wait_timeout(s, wait_until - now).unwrap();
+            if s.shutdown {
+                // Disconnected, return error.
+                return Err(Error::NotConnected);
             }
 
-            match self
-                .receiver
-                .as_ref()
-                .unwrap()
-                .recv_timeout(wait_until.unwrap() - now)
-            {
-                Ok(StopMonitor) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    // Disconnection, drop the receiver.
-                    let _ = self.disconnect();
-                    return Err(Error::NotConnected);
-                }
-                Ok(SetInterval(new_millis)) => {
-                    self.interval_millis = new_millis;
-                    // Fall through to loop
-                }
-                Ok(JobError) | Ok(JobTransferred) | Err(mpsc::RecvTimeoutError::Timeout) => {
-                    return self.get_status_now();
+            if !s.notified && Instant::now() < wait_until {
+                // Non-notification wakeup (spurious or interval changed), wait again
+                continue;
+            }
+
+            // Got a notification or waited the set interval, get status below.
+            s.notified = false;
+            break Ok(());
+        };
+
+        let result = if result.is_ok() {
+            self.last_status = Some(Instant::now());
+            if let Ok(job) = self.job() {
+                if let Ok(status) = job.get_status() {
+                    return Ok(status);
                 }
             }
-        }
-    }
-}
+            Err(Error::NotConnected)
+        } else {
+            result
+        };
 
-impl Drop for InProcessMonitor {
-    fn drop(&mut self) {
-        // NOTE: If we drop on a single thread apartment thread, this will not succeed.
-        let _ = self.disconnect();
+        self.vars.1.lock().unwrap().shutdown = true;
+        Err(result.unwrap_err())
     }
 }
