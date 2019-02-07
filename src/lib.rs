@@ -19,8 +19,8 @@ pub use bits::{BitsJobError, BitsJobProgress, BitsJobStatus, BitsProxyUsage};
 pub use comedy::Error as ComedyError;
 pub use guid_win::Guid;
 
-// These errors would come from a Local Service client, this structure properly lives in the
-// crate that deals with named pipes.
+// These errors would come from a Local Service client, this enum properly lives in the
+// crate that deals with named pipes, but it isn't in use now.
 #[derive(Clone, Debug, Eq, Fail, PartialEq)]
 pub enum PipeError {
     #[fail(display = "Pipe is not connected")]
@@ -42,7 +42,7 @@ impl convert::From<ComedyError> for PipeError {
 pub use PipeError as Error;
 
 pub enum BitsClient {
-    /// The InProcess variant does all BITS calls in-process.
+    /// The `InProcess` variant does all BITS calls directly.
     InProcess(in_process::InProcessClient),
     // Space is reserved here for the LocalService variant, which will work through an external
     // process running as Local Service.

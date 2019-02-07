@@ -166,6 +166,8 @@ fn monitor_loop(
     wait_millis: u32,
 ) -> Result {
     /*
+    // Commented out to avoid vendoring ctrlc.
+    // This could also possibly be done with `exclude` in the mozilla-central `Cargo.toml`.
     let client_for_handler = _client.clone();
     ctrlc::set_handler(move || {
         eprintln!("Ctrl-C!");

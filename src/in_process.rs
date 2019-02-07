@@ -24,6 +24,9 @@ macro_rules! get_job {
     }};
 }
 
+/// The in-process client uses direct BITS calls via the `bits` crate.
+///
+/// Note that "in-process" does not refer to the BITS COM server, which is out-of-process.
 pub struct InProcessClient {
     job_name: ffi::OsString,
     save_path_prefix: ffi::OsString,
@@ -229,7 +232,7 @@ struct InProcessMonitorVars {
 pub struct InProcessMonitor {
     vars: Arc<ControlPair>,
     guid: Guid,
-    last_status: Option<Instant>,
+    last_status_time: Option<Instant>,
 }
 
 impl InProcessMonitor {
@@ -277,7 +280,7 @@ impl InProcessMonitor {
         let monitor = InProcessMonitor {
             guid,
             vars,
-            last_status: None,
+            last_status_time: None,
         };
 
         Ok((monitor, control))
@@ -292,68 +295,52 @@ impl InProcessMonitor {
 
         let started = Instant::now();
 
-        let result = loop {
+        loop {
             let mut s = self.vars.1.lock().unwrap();
-
             if s.shutdown {
-                // Already disconnected, return error.
+                // Disconnected, return error.
                 return Err(Error::NotConnected);
             }
 
             if started.elapsed() > timeout {
-                // Disconnect and return error.
+                // Timed out, disconnect and return timeout error.
+                // This should not happen normally with the in-process monitor, but the monitor
+                // interval could potentially be too long (for instance).
                 break Err(Error::Timeout);
             }
 
             // Get the interval every pass through the loop, in case it has changed.
             let interval = Duration::from_millis(s.interval_millis as u64);
 
-            let wait_until = if let Some(last_status) = self.last_status {
-                Some(cmp::min(last_status + interval, started + timeout))
-            } else {
-                None
-            };
+            let wait_until = self.last_status_time.map(|last_status_time| {
+                cmp::min(last_status_time + interval, started + timeout)
+            });
 
             let now = Instant::now();
 
             if s.notified || wait_until.is_none() || wait_until.unwrap() < now {
-                // Aready notified, or this is the first status report, so
-                // immediately get status below.
+                // Notified, first status report, or status report due,
+                // so exit loop to get status below.
                 s.notified = false;
                 break Ok(());
             }
             let wait_until = wait_until.unwrap();
 
-            // unwrap instead of handling PoisonError
-            let (mut s, _timeout_result) = self.vars.0.wait_timeout(s, wait_until - now).unwrap();
-            if s.shutdown {
-                // Disconnected, return error.
-                return Err(Error::NotConnected);
-            }
-
-            if !s.notified && Instant::now() < wait_until {
-                // Non-notification wakeup (spurious or interval changed), wait again
-                continue;
-            }
-
-            // Got a notification or waited the set interval, get status below.
-            s.notified = false;
-            break Ok(());
-        };
-
-        let result = if result.is_ok() {
-            self.last_status = Some(Instant::now());
-            if let Ok(job) = self.job() {
-                if let Ok(status) = job.get_status() {
-                    return Ok(status);
-                }
-            }
-            Err(Error::NotConnected)
-        } else {
-            result
-        };
-
-        self.vars.1.lock().unwrap().shutdown = true;
-        Err(result.unwrap_err())
+            // Wait, repeat the checks above.
+            let (_s, _timeout_result) = self.vars.0.wait_timeout(s, wait_until - now).unwrap();
+            // TODO: Is there a way to avoid having to re-lock the Mutex on the next pass through
+            // the loop while preserving the ability to do the work above immediately on the
+            // first loop?
+        }.and_then(|()| {
+            self.last_status_time = Some(Instant::now());
+            self.job()
+        }).and_then(|job| {
+            // TODO: return a more useful error here?
+            job.get_status().map_err(|_| Error::NotConnected)
+        }).or_else(|e| {
+            // On any error, disconnect.
+            self.vars.1.lock().unwrap().shutdown = true;
+            Err(e)
+        })
     }
 }
