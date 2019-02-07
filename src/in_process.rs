@@ -146,10 +146,7 @@ impl InProcessClient {
         Ok(())
     }
 
-    fn get_monitor_control_sender(
-        &mut self,
-        guid: Guid,
-    ) -> Option<Arc<ControlPair>> {
+    fn get_monitor_control_sender(&mut self, guid: Guid) -> Option<Arc<ControlPair>> {
         if let hash_map::Entry::Occupied(occ) = self.monitors.entry(guid) {
             if let Some(sender) = occ.get().0.upgrade() {
                 Some(sender)
@@ -242,12 +239,14 @@ impl InProcessMonitor {
     ) -> Result<(InProcessMonitor, InProcessMonitorControl), comedy::Error> {
         let guid = job.guid()?;
 
-        let vars = Arc::new((Condvar::new(),
+        let vars = Arc::new((
+            Condvar::new(),
             Mutex::new(InProcessMonitorVars {
                 interval_millis,
                 notified: false,
                 shutdown: false,
-            })));
+            }),
+        ));
 
         let transferred_control = InProcessMonitorControl(Arc::downgrade(&vars));
         let transferred_cb = Box::new(move || {
@@ -267,7 +266,7 @@ impl InProcessMonitor {
                 if let Ok(mut vars) = control.1.lock() {
                     vars.notified = true;
                     control.0.notify_all();
-                    return Ok(())
+                    return Ok(());
                 }
             }
             Err(E_FAIL)
@@ -295,49 +294,52 @@ impl InProcessMonitor {
 
         let started = Instant::now();
 
-        loop {
+        {
             let mut s = self.vars.1.lock().unwrap();
-            if s.shutdown {
-                // Disconnected, return error.
-                return Err(Error::NotConnected);
+            loop {
+                if s.shutdown {
+                    // Disconnected, immediately return error.
+                    return Err(Error::NotConnected);
+                }
+
+                if started.elapsed() > timeout {
+                    // Timed out, disconnect and return timeout error.
+                    // This should not happen normally with the in-process monitor, but the monitor
+                    // interval could potentially be too long (for instance).
+                    break Err(Error::Timeout);
+                }
+
+                // Get the interval every pass through the loop, in case it has changed.
+                let interval = Duration::from_millis(s.interval_millis as u64);
+
+                let wait_until = self.last_status_time.map(|last_status_time| {
+                    cmp::min(last_status_time + interval, started + timeout)
+                });
+
+                let now = Instant::now();
+
+                if s.notified || wait_until.is_none() || wait_until.unwrap() < now {
+                    // Notified, first status report, or status report due,
+                    // so exit loop to get status below.
+                    s.notified = false;
+                    break Ok(());
+                }
+                let wait_until = wait_until.unwrap();
+
+                // Wait, repeat the checks above.
+                s = self.vars.0.wait_timeout(s, wait_until - now).unwrap().0;
             }
-
-            if started.elapsed() > timeout {
-                // Timed out, disconnect and return timeout error.
-                // This should not happen normally with the in-process monitor, but the monitor
-                // interval could potentially be too long (for instance).
-                break Err(Error::Timeout);
-            }
-
-            // Get the interval every pass through the loop, in case it has changed.
-            let interval = Duration::from_millis(s.interval_millis as u64);
-
-            let wait_until = self.last_status_time.map(|last_status_time| {
-                cmp::min(last_status_time + interval, started + timeout)
-            });
-
-            let now = Instant::now();
-
-            if s.notified || wait_until.is_none() || wait_until.unwrap() < now {
-                // Notified, first status report, or status report due,
-                // so exit loop to get status below.
-                s.notified = false;
-                break Ok(());
-            }
-            let wait_until = wait_until.unwrap();
-
-            // Wait, repeat the checks above.
-            let (_s, _timeout_result) = self.vars.0.wait_timeout(s, wait_until - now).unwrap();
-            // TODO: Is there a way to avoid having to re-lock the Mutex on the next pass through
-            // the loop while preserving the ability to do the work above immediately on the
-            // first loop?
-        }.and_then(|()| {
+        }
+        .and_then(|()| {
+            // No error yet, start getting status now.
             self.last_status_time = Some(Instant::now());
             self.job()
-        }).and_then(|job| {
-            // TODO: return a more useful error here?
+        })
+        .and_then(|job| {
+            // Got job successfully, get status.
             job.get_status().map_err(|_| Error::NotConnected)
-        }).or_else(|e| {
+        })
+        .or_else(|e| {
             // On any error, disconnect.
             self.vars.1.lock().unwrap().shutdown = true;
             Err(e)
