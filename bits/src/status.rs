@@ -4,7 +4,7 @@ use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};
 #[cfg(feature = "status_serde")]
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobStatus {
     pub state: BG_JOB_STATE,
@@ -13,14 +13,14 @@ pub struct BitsJobStatus {
     pub error: Option<BitsJobError>,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobError {
     pub context: BG_ERROR_CONTEXT,
     pub error: HRESULT,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub enum BitsErrorContext {
     None,
@@ -53,7 +53,7 @@ impl From<BG_ERROR_CONTEXT> for BitsErrorContext {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub enum BitsJobState {
     Queued,
@@ -88,7 +88,7 @@ impl From<BG_JOB_STATE> for BitsJobState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobProgress {
     pub total_bytes: Option<u64>,

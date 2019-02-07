@@ -41,6 +41,7 @@ pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
 pub use winapi::shared::winerror::E_FAIL;
 
 #[repr(u32)]
+#[derive(Copy, Clone, Debug)]
 pub enum BitsJobPriority {
     Foreground = BG_JOB_PRIORITY_FOREGROUND,
     High = BG_JOB_PRIORITY_HIGH,
@@ -49,6 +50,7 @@ pub enum BitsJobPriority {
 }
 
 #[repr(u32)]
+#[derive(Copy, Clone, Debug)]
 pub enum BitsProxyUsage {
     NoProxy = BG_JOB_PROXY_USAGE_NO_PROXY,
     /// Default
