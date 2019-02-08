@@ -11,9 +11,8 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use failure::bail;
-use guid_win::Guid;
 
-use bits_client::{BitsClient, BitsJobState, BitsMonitorClient, BitsProxyUsage};
+use bits_client::{BitsClient, BitsJobState, BitsMonitorClient, BitsProxyUsage, Guid};
 
 type Result = std::result::Result<(), failure::Error>;
 
@@ -58,7 +57,7 @@ fn entry() -> Result {
 
     let mut client = match () {
         _ => BitsClient::new(
-            OsString::from("JOBBO-2"),
+            OsString::from("bits_client test"),
             OsString::from("C:\\ProgramData\\"),
         )?,
     };

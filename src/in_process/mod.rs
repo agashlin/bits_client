@@ -346,3 +346,6 @@ impl InProcessMonitor {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

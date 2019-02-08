@@ -23,12 +23,12 @@ use comedy::{com_call, com_call_getter};
 use guid_win::Guid;
 use winapi::shared::ntdef::LPWSTR;
 use winapi::um::bits::{
-    IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, BG_JOB_PRIORITY,
-    BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW, BG_JOB_PRIORITY_NORMAL,
-    BG_JOB_PROXY_USAGE, BG_JOB_PROXY_USAGE_AUTODETECT, BG_JOB_PROXY_USAGE_NO_PROXY,
-    BG_JOB_PROXY_USAGE_PRECONFIG, BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSIENT_ERROR,
-    BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION,
-    BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
+    IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, IEnumBackgroundCopyJobs,
+    BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW,
+    BG_JOB_PRIORITY_NORMAL, BG_JOB_PROXY_USAGE, BG_JOB_PROXY_USAGE_AUTODETECT,
+    BG_JOB_PROXY_USAGE_NO_PROXY, BG_JOB_PROXY_USAGE_PRECONFIG, BG_JOB_STATE_ERROR,
+    BG_JOB_STATE_TRANSIENT_ERROR, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR,
+    BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
@@ -98,6 +98,28 @@ impl BackgroundCopyManager {
         }
     }
 
+    pub fn cancel_jobs_by_name(&self, match_name: &OsStr) -> Result<()> {
+        unsafe {
+            let jobs = com_call_getter!(|jobs| self.0, IBackgroundCopyManager::EnumJobs(0, jobs))?;
+
+            loop {
+                match com_call_getter!(
+                    |job| jobs,
+                    IEnumBackgroundCopyJobs::Next(1, job, ptr::null_mut())
+                ) {
+                    Ok(job) => {
+                        if job_name_eq(&job, match_name)? {
+                            let _ = com_call!(job, IBackgroundCopyJob::Cancel());
+                        }
+                    }
+                    Err(_) => {
+                        break Ok(());
+                    }
+                }
+            }
+        }
+    }
+
     /// Returns Err if the job was not found.
     pub fn get_job_by_guid(&self, guid: &Guid) -> Result<BitsJob> {
         unsafe { com_call_getter!(|job| self.0, IBackgroundCopyManager::GetJob(&guid.0, job)) }
@@ -119,21 +141,7 @@ impl BackgroundCopyManager {
         match_name: &OsStr,
     ) -> Result<Option<BitsJob>> {
         if let Some(BitsJob(job)) = self.find_job_by_guid(guid)? {
-            let job_name = unsafe {
-                let mut job_name = ptr::null_mut() as LPWSTR;
-
-                com_call!(job, IBackgroundCopyJob::GetDisplayName(&mut job_name))?;
-
-                let _job_name_handle = CoTaskMem::wrap(job_name as *mut _).map_err(|()| Error {
-                    code: Some(ErrorCode::NullPtr),
-                    function: Some("IBackgroundCopyJob::GetDisplayName"),
-                    file_line: Some(FileLine(file!(), line!())),
-                })?;
-
-                OsString::from_wide_ptr_null(job_name)
-            };
-
-            if job_name == match_name {
+            if job_name_eq(&job, match_name)? {
                 Ok(Some(BitsJob(job)))
             } else {
                 Ok(None)
@@ -142,6 +150,24 @@ impl BackgroundCopyManager {
             Ok(None)
         }
     }
+}
+
+fn job_name_eq(job: &ComPtr<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
+    let job_name = unsafe {
+        let mut job_name = ptr::null_mut() as LPWSTR;
+
+        com_call!(job, IBackgroundCopyJob::GetDisplayName(&mut job_name))?;
+
+        let _job_name_handle = CoTaskMem::wrap(job_name as *mut _).map_err(|()| Error {
+            code: Some(ErrorCode::NullPtr),
+            function: Some("IBackgroundCopyJob::GetDisplayName"),
+            file_line: Some(FileLine(file!(), line!())),
+        })?;
+
+        OsString::from_wide_ptr_null(job_name)
+    };
+
+    Ok(job_name == match_name)
 }
 
 pub struct BitsJob(ComPtr<IBackgroundCopyJob>);
