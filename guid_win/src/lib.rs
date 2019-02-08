@@ -1,6 +1,5 @@
 extern crate comedy;
 extern crate winapi;
-extern crate wio;
 
 use std::ffi::OsString;
 use std::fmt::{Debug, Display, Error, Formatter, Result};
@@ -11,11 +10,11 @@ use std::result;
 use std::str::FromStr;
 
 use comedy::check_succeeded;
+use comedy::wide::{FromWide, ToWide};
 
 use winapi::ctypes;
 use winapi::shared::guiddef::GUID;
 use winapi::um::combaseapi::{CLSIDFromString, StringFromGUID2};
-use wio::wide::{FromWide, ToWide};
 
 #[cfg(feature = "guid_serde")]
 use serde_derive::{Deserialize, Serialize};

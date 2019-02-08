@@ -17,8 +17,8 @@ winapi = { version = "0.3.6", features = ["basetsd",
                                           "impl-default",
                                           "minwindef",
                                           "objbase",
+                                          "unknwnbase",
                                           "winbase",
                                           "winerror",
                                           "wtypes",
                                           "wtypesbase"] }
-wio = "0.2.0"

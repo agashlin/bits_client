@@ -1,7 +1,6 @@
 extern crate comedy;
 extern crate guid_win;
 extern crate winapi;
-extern crate wio;
 
 #[cfg(feature = "status_serde")]
 extern crate serde;
@@ -16,9 +15,10 @@ use std::mem;
 use std::ptr;
 use std::result;
 
-use comedy::com::{create_instance_local_server, INIT_MTA};
+use comedy::com::{create_instance_local_server, ComPtr, INIT_MTA};
 use comedy::error::{Error, ErrorCode, FileLine, ResultExt};
 use comedy::handle::CoTaskMem;
+use comedy::wide::{FromWide, ToWide};
 use comedy::{com_call, com_call_getter};
 use guid_win::Guid;
 use winapi::shared::ntdef::LPWSTR;
@@ -33,8 +33,6 @@ use winapi::um::bits::{
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::RIDL;
-use wio::com::ComPtr;
-use wio::wide::{FromWide, ToWide};
 
 pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
 
