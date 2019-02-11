@@ -21,7 +21,7 @@ use comedy::handle::CoTaskMem;
 use comedy::wide::{FromWide, ToWide};
 use comedy::{com_call, com_call_getter};
 use guid_win::Guid;
-use winapi::shared::ntdef::LPWSTR;
+use winapi::shared::ntdef::{LPWSTR, ULONG};
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, IEnumBackgroundCopyJobs,
     BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW,
@@ -230,6 +230,11 @@ impl BitsJob {
                 IBackgroundCopyJob::SetPriority(priority as BG_JOB_PRIORITY)
             )
         }?;
+        Ok(())
+    }
+
+    pub fn set_minimum_retry_delay(&mut self, seconds: ULONG) -> Result<()> {
+        unsafe { com_call!(self.0, IBackgroundCopyJob::SetMinimumRetryDelay(seconds)) }?;
         Ok(())
     }
 

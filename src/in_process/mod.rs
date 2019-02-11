@@ -64,22 +64,28 @@ impl InProcessClient {
             .create_job(&self.job_name)
             .map_err(|e| Create(e.get_hresult().unwrap()))?;
 
+        // TODO: logging for the rest of these errors?
         let guid = job
             .guid()
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
-        job.set_proxy_usage(proxy_usage)
-            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+        (|| {
+            job.set_proxy_usage(proxy_usage)?;
+            job.set_minimum_retry_delay(60)?;
+
+            // TODO: this will need to be optional eventually
+            job.set_priority(BitsJobPriority::Foreground)?;
+
+            Ok(())
+        })()
+        .map_err(|e: comedy::Error| OtherBITS(e.get_hresult().unwrap()))?;
 
         let (client, control) = InProcessMonitor::new(&mut job, monitor_interval_millis)
             .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
 
-        // TODO: this will need to be optional eventually
-        job.set_priority(BitsJobPriority::Foreground)
-            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
-
         job.add_file(&url, &full_path)
             .map_err(|e| AddFile(e.get_hresult().unwrap()))?;
+
         job.resume().map_err(|e| Resume(e.get_hresult().unwrap()))?;
 
         self.monitors.insert(guid.clone(), control);
