@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 use std::cmp;
 use std::collections::{hash_map, HashMap};
 use std::ffi;
@@ -72,6 +76,7 @@ impl InProcessClient {
         (|| {
             job.set_proxy_usage(proxy_usage)?;
             job.set_minimum_retry_delay(60)?;
+            job.set_redirect_report()?;
 
             // TODO: this will need to be optional eventually
             job.set_priority(BitsJobPriority::Foreground)?;

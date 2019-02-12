@@ -9,13 +9,16 @@ status_serde = ["serde", "serde_derive"]
 
 [dependencies]
 comedy = { path = "../comedy" }
+filetime_win = { path = "../filetime_win" }
 guid_win = { path = "../guid_win" }
 winapi = { version = "0.3.6", features = ["basetsd",
                                           "bits",
+                                          "bits2_5",
                                           "bitsmsg",
                                           "guiddef",
                                           "minwindef",
                                           "ntdef",
+                                          "rpcndr",
                                           "unknwnbase",
                                           "winerror",
                                           ] }

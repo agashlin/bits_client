@@ -1,3 +1,4 @@
+use filetime_win::FileTime;
 use winapi::shared::winerror::HRESULT;
 use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};
 
@@ -11,6 +12,7 @@ pub struct BitsJobStatus {
     pub progress: BitsJobProgress,
     pub error_count: u32,
     pub error: Option<BitsJobError>,
+    pub times: BitsJobTimes,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -97,14 +99,10 @@ pub struct BitsJobProgress {
     pub transferred_files: u32,
 }
 
-/*
-impl fmt::Debug for BitsJobStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "BitsJobStatus {{ ")?;
-        write!(f, "state: {:?}, ", self.state)?;
-        write!(f, "progress: {:?} ", self.progress)?;
-        write!(f, "error_count: {:?}, ", self.error_count)?;
-        write!(f, "error: {:?} }}", self.error)
-    }
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
+pub struct BitsJobTimes {
+    pub creation: FileTime,
+    pub modification: FileTime,
+    pub transfer_completion: Option<FileTime>,
 }
-*/

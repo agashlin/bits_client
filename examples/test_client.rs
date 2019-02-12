@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 extern crate bits_client;
 extern crate comedy;
 //extern crate ctrlc;
@@ -106,8 +110,8 @@ fn bits_start(
     save_path: OsString,
     proxy_usage: BitsProxyUsage,
 ) -> Result {
-    let interval = 10 * 60 * 1000;
-    //let interval = 1000;
+    //let interval = 10 * 60 * 1000;
+    let interval = 1000;
 
     let result = match client
         .lock()
@@ -179,6 +183,19 @@ fn monitor_loop(
         let status = monitor_client.get_status(wait_millis * 10)?;
 
         println!("{:?} {:?}", BitsJobState::from(status.state), status);
+
+        //println!("{}", job.get_first_file()?.get_remote_name()?.into_string().unwrap());
+        let transfer_completion_time = if let Some(ft) = status.times.transfer_completion {
+            format!("Some({})", ft.to_system_time_utc()?)
+        } else {
+            String::from("None")
+        };
+        println!(
+            "creation: {}, modification: {}, transfer completion: {}",
+            status.times.creation.to_system_time_utc()?,
+            status.times.modification.to_system_time_utc()?,
+            transfer_completion_time
+        );
 
         match BitsJobState::from(status.state) {
             BitsJobState::Connecting

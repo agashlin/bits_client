@@ -30,6 +30,7 @@ name = "bits"
 version = "0.1.0"
 dependencies = [
  "comedy 0.1.0",
+ "filetime_win 0.1.0",
  "guid_win 0.1.0",
  "winapi 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -85,6 +86,14 @@ dependencies = [
  "quote 0.6.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.15.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "synstructure 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "filetime_win"
+version = "0.1.0"
+dependencies = [
+ "comedy 0.1.0",
+ "winapi 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

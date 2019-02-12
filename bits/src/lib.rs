@@ -1,4 +1,5 @@
 extern crate comedy;
+extern crate filetime_win;
 extern crate guid_win;
 extern crate winapi;
 
@@ -20,21 +21,23 @@ use comedy::error::{Error, ErrorCode, FileLine, ResultExt};
 use comedy::handle::CoTaskMem;
 use comedy::wide::{FromWide, ToWide};
 use comedy::{com_call, com_call_getter};
+use filetime_win::FileTime;
 use guid_win::Guid;
 use winapi::shared::ntdef::{LPWSTR, ULONG};
 use winapi::um::bits::{
-    IBackgroundCopyError, IBackgroundCopyJob, IBackgroundCopyManager, IEnumBackgroundCopyJobs,
-    BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND, BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW,
-    BG_JOB_PRIORITY_NORMAL, BG_JOB_PROXY_USAGE, BG_JOB_PROXY_USAGE_AUTODETECT,
-    BG_JOB_PROXY_USAGE_NO_PROXY, BG_JOB_PROXY_USAGE_PRECONFIG, BG_JOB_STATE_ERROR,
-    BG_JOB_STATE_TRANSIENT_ERROR, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE, BG_NOTIFY_JOB_ERROR,
-    BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
+    IBackgroundCopyError, IBackgroundCopyFile, IBackgroundCopyJob, IBackgroundCopyManager,
+    IEnumBackgroundCopyFiles, IEnumBackgroundCopyJobs, BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND,
+    BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW, BG_JOB_PRIORITY_NORMAL, BG_JOB_PROXY_USAGE,
+    BG_JOB_PROXY_USAGE_AUTODETECT, BG_JOB_PROXY_USAGE_NO_PROXY, BG_JOB_PROXY_USAGE_PRECONFIG,
+    BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSIENT_ERROR, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE,
+    BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
+use winapi::um::bits2_5::BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT;
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::RIDL;
 
-pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus};
+pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus, BitsJobTimes};
 
 pub use winapi::shared::winerror::E_FAIL;
 
@@ -61,6 +64,45 @@ type Result<T> = result::Result<T, Error>;
 // temporarily here until https://github.com/retep998/winapi-rs/pull/704 is available
 RIDL! {#[uuid(0x4991d34b, 0x80a1, 0x4291, 0x83, 0xb6, 0x33, 0x28, 0x36, 0x6b, 0x90, 0x97)]
 class BcmClass;}
+
+// temporarily here until https://github.com/retep998/winapi-rs/pull/737 is available
+use winapi::shared::ntdef::{HRESULT, LPCWSTR};
+use winapi::shared::rpcndr::byte;
+use winapi::um::bits2_5::BG_CERT_STORE_LOCATION;
+use winapi::um::unknwnbase::IUnknownVtbl;
+RIDL! {#[uuid(0xf1bd1079, 0x9f01, 0x4bdc, 0x80, 0x36, 0xf0, 0x9b, 0x70, 0x09, 0x50, 0x66)]
+interface IBackgroundCopyJobHttpOptions(IBackgroundCopyJobHttpOptionsVtbl):
+    IUnknown(IUnknownVtbl) {
+    fn SetClientCertificateByID(
+        StoreLocation: BG_CERT_STORE_LOCATION,
+        StoreName: LPCWSTR,
+        pCertHashBlob: *mut byte,
+    ) -> HRESULT,
+    fn SetClientCertificateByName(
+        StoreLocation: BG_CERT_STORE_LOCATION,
+        StoreName: LPCWSTR,
+        SubjectName: LPCWSTR,
+    ) -> HRESULT,
+    fn RemoveClientCertificate() -> HRESULT,
+    fn GetClientCertificate(
+        pStoreLocation: *mut BG_CERT_STORE_LOCATION,
+        pStoreName: *mut LPWSTR,
+        ppCertHashBlob: *mut *mut byte,
+        pSubjectName: *mut LPWSTR,
+    ) -> HRESULT,
+    fn SetCustomHeaders(
+        RequestHeaders: LPCWSTR,
+    ) -> HRESULT,
+    fn GetCustomHeaders(
+        pRequestHeaders: *mut LPWSTR,
+    ) -> HRESULT,
+    fn SetSecurityFlags(
+        Flags: ULONG,
+    ) -> HRESULT,
+    fn GetSecurityFlags(
+        pFlags: *mut ULONG,
+    ) -> HRESULT,
+}}
 
 pub struct BackgroundCopyManager(ComPtr<IBackgroundCopyManager>);
 
@@ -193,6 +235,17 @@ impl BitsJob {
         Ok(())
     }
 
+    pub fn get_first_file(&mut self) -> Result<BitsFile> {
+        unsafe {
+            let files = com_call_getter!(|e| self.0, IBackgroundCopyJob::EnumFiles(e))?;
+            let file = com_call_getter!(
+                |f| files,
+                IEnumBackgroundCopyFiles::Next(1, f, ptr::null_mut())
+            )?;
+            Ok(BitsFile(file))
+        }
+    }
+
     pub fn set_description(&mut self, description: &OsStr) -> Result<()> {
         unsafe {
             com_call!(
@@ -235,6 +288,20 @@ impl BitsJob {
 
     pub fn set_minimum_retry_delay(&mut self, seconds: ULONG) -> Result<()> {
         unsafe { com_call!(self.0, IBackgroundCopyJob::SetMinimumRetryDelay(seconds)) }?;
+        Ok(())
+    }
+
+    /// First available in Windows Vista
+    pub fn set_redirect_report(&mut self) -> Result<()> {
+        unsafe {
+            com_call!(
+                comedy::com::cast(&self.0)?,
+                IBackgroundCopyJobHttpOptions::SetSecurityFlags(
+                    BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT
+                )
+            )
+        }?;
+
         Ok(())
     }
 
@@ -303,11 +370,13 @@ impl BitsJob {
         let mut state = 0;
         let mut progress = unsafe { mem::zeroed() };
         let mut error_count = 0;
+        let mut times = unsafe { mem::zeroed() };
 
         unsafe {
             com_call!(self.0, IBackgroundCopyJob::GetState(&mut state))?;
             com_call!(self.0, IBackgroundCopyJob::GetProgress(&mut progress))?;
             com_call!(self.0, IBackgroundCopyJob::GetErrorCount(&mut error_count))?;
+            com_call!(self.0, IBackgroundCopyJob::GetTimes(&mut times))?;
         }
 
         Ok(BitsJobStatus {
@@ -331,6 +400,17 @@ impl BitsJob {
             } else {
                 None
             },
+            times: BitsJobTimes {
+                creation: FileTime(times.CreationTime),
+                modification: FileTime(times.ModificationTime),
+                transfer_completion: if times.TransferCompletionTime.dwLowDateTime == 0
+                    && times.TransferCompletionTime.dwHighDateTime == 0
+                {
+                    None
+                } else {
+                    Some(FileTime(times.TransferCompletionTime))
+                },
+            },
         })
     }
 
@@ -353,5 +433,23 @@ impl BitsJob {
     unsafe fn set_notify_interface(&self, interface: *mut IUnknown) -> Result<()> {
         com_call!(self.0, IBackgroundCopyJob::SetNotifyInterface(interface))?;
         Ok(())
+    }
+}
+
+pub struct BitsFile(ComPtr<IBackgroundCopyFile>);
+
+impl BitsFile {
+    pub fn get_remote_name(&self) -> Result<OsString> {
+        unsafe {
+            let mut file_name = ptr::null_mut() as LPWSTR;
+            com_call!(self.0, IBackgroundCopyFile::GetRemoteName(&mut file_name))?;
+            CoTaskMem::wrap(file_name as *mut _)
+                .map_err(|()| Error {
+                    code: Some(ErrorCode::NullPtr),
+                    function: Some("IBackgroundCopyFile::GetRemoteName"),
+                    file_line: Some(FileLine(file!(), line!())),
+                })
+                .map(|_cotaskmem| OsString::from_wide_ptr_null(file_name))
+        }
     }
 }

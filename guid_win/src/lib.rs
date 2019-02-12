@@ -1,4 +1,8 @@
 extern crate comedy;
+#[cfg(feature = "guid_serde")]
+extern crate serde;
+#[cfg(feature = "guid_serde")]
+extern crate serde_derive;
 extern crate winapi;
 
 use std::ffi::OsString;
