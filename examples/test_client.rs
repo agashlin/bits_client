@@ -128,6 +128,11 @@ fn bits_start(
     match result {
         Ok((r, monitor_client)) => {
             println!("start success, guid = {}", r.guid);
+            client
+                .lock()
+                .unwrap()
+                .set_update_interval(r.guid.clone(), interval)?
+                .unwrap();
             monitor_loop(client, monitor_client, r.guid.clone(), interval)?;
             Ok(())
         }

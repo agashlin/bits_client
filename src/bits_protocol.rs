@@ -6,7 +6,15 @@ use std::ffi::OsString;
 
 use guid_win::Guid;
 
+use super::{BitsErrorContext, BitsJobProgress, BitsJobState, BitsJobTimes};
+
 type HRESULT = i32;
+
+#[derive(Clone, Debug)]
+pub struct HResultMessage {
+    pub hr: HRESULT,
+    pub message: String,
+}
 
 // TODO: real sizes checked against something reasonable
 pub const MAX_COMMAND: usize = 0x4000;
@@ -63,11 +71,11 @@ pub struct StartJobSuccess {
 #[derive(Clone, Debug)]
 pub enum StartJobFailure {
     ArgumentValidation(String),
-    Create(HRESULT),
-    AddFile(HRESULT),
-    ApplySettings(HRESULT),
-    Resume(HRESULT),
-    OtherBITS(HRESULT),
+    Create(HResultMessage),
+    AddFile(HResultMessage),
+    ApplySettings(HResultMessage),
+    Resume(HResultMessage),
+    OtherBITS(HResultMessage),
     Other(String),
 }
 
@@ -90,8 +98,8 @@ pub struct MonitorJobCommand {
 pub enum MonitorJobFailure {
     ArgumentValidation(String),
     NotFound,
-    GetJob(HRESULT),
-    OtherBITS(HRESULT),
+    GetJob(HResultMessage),
+    OtherBITS(HResultMessage),
     Other(String),
 }
 
@@ -112,9 +120,9 @@ pub struct SuspendJobCommand {
 #[derive(Clone, Debug)]
 pub enum SuspendJobFailure {
     NotFound,
-    GetJob(HRESULT),
-    SuspendJob(HRESULT),
-    OtherBITS(HRESULT),
+    GetJob(HResultMessage),
+    SuspendJob(HResultMessage),
+    OtherBITS(HResultMessage),
     Other(String),
 }
 
@@ -135,9 +143,9 @@ pub struct ResumeJobCommand {
 #[derive(Clone, Debug)]
 pub enum ResumeJobFailure {
     NotFound,
-    GetJob(HRESULT),
-    ResumeJob(HRESULT),
-    OtherBITS(HRESULT),
+    GetJob(HResultMessage),
+    ResumeJob(HResultMessage),
+    OtherBITS(HResultMessage),
     Other(String),
 }
 
@@ -159,9 +167,9 @@ pub struct SetJobPriorityCommand {
 #[derive(Clone, Debug)]
 pub enum SetJobPriorityFailure {
     NotFound,
-    GetJob(HRESULT),
-    ApplySettings(HRESULT),
-    OtherBITS(HRESULT),
+    GetJob(HResultMessage),
+    ApplySettings(HResultMessage),
+    OtherBITS(HResultMessage),
     Other(String),
 }
 
@@ -204,10 +212,10 @@ pub struct CompleteJobCommand {
 #[derive(Clone, Debug)]
 pub enum CompleteJobFailure {
     NotFound,
-    GetJob(HRESULT),
-    CompleteJob(HRESULT),
+    GetJob(HResultMessage),
+    CompleteJob(HResultMessage),
     PartialComplete,
-    OtherBITS(HRESULT),
+    OtherBITS(HResultMessage),
     Other(String),
 }
 
@@ -228,9 +236,9 @@ pub struct CancelJobCommand {
 #[derive(Clone, Debug)]
 pub enum CancelJobFailure {
     NotFound,
-    GetJob(HRESULT),
-    CancelJob(HRESULT),
-    OtherBITS(HRESULT),
+    GetJob(HResultMessage),
+    CancelJob(HResultMessage),
+    OtherBITS(HResultMessage),
     Other(String),
 }
 
@@ -240,4 +248,25 @@ impl CommandType for CancelJobCommand {
     fn new(cmd: Self) -> Command {
         Command::CancelJob(cmd)
     }
+}
+
+// Status report
+// This has more enums than bits::status::BitsJobStatus, and includes a URL which updates with
+// redirect.
+#[derive(Clone, Debug)]
+pub struct JobStatus {
+    pub state: BitsJobState,
+    pub progress: BitsJobProgress,
+    pub error_count: u32,
+    pub error: Option<JobError>,
+    pub times: BitsJobTimes,
+    /// None means same as last time
+    pub url: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct JobError {
+    pub context: BitsErrorContext,
+    pub context_str: String,
+    pub error: HResultMessage,
 }

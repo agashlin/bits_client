@@ -18,8 +18,9 @@ use std::ffi;
 use bits_protocol::*;
 use failure::Fail;
 
-pub use bits::status::{BitsErrorContext, BitsJobState};
-pub use bits::{BitsJobError, BitsJobProgress, BitsJobStatus, BitsProxyUsage};
+pub use bits::status::{BitsErrorContext, BitsJobState, BitsJobTimes};
+pub use bits::{BitsJobProgress, BitsJobStatus, BitsProxyUsage};
+pub use bits_protocol::{JobError, JobStatus};
 pub use comedy::Error as ComedyError;
 pub use guid_win::Guid;
 
@@ -193,7 +194,7 @@ impl BitsMonitorClient {
     ///
     /// If there is an error or the job transfer completes, a result may be available sooner than
     /// the monitor interval.
-    pub fn get_status(&mut self, timeout_millis: u32) -> Result<BitsJobStatus, Error> {
+    pub fn get_status(&mut self, timeout_millis: u32) -> Result<JobStatus, Error> {
         match self {
             BitsMonitorClient::InProcess(client) => client.get_status(timeout_millis),
         }

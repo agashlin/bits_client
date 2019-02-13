@@ -11,6 +11,7 @@ use std::ptr::{self, null_mut, NonNull};
 use std::rc::Rc;
 use std::result;
 
+use winapi::shared::minwindef::LPVOID;
 use winapi::shared::{
     winerror::HRESULT,
     wtypesbase::{CLSCTX, CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER},
@@ -24,6 +25,7 @@ use winapi::{Class, Interface};
 
 use check_succeeded;
 use error::{succeeded_or_err, Error, ErrorCode::*, Result, ResultExt};
+use handle::CoTaskMem;
 
 // ComPtr to wrap COM interfaces sanely
 // Originally from wio-rs b895086
@@ -287,5 +289,42 @@ macro_rules! com_call_getter {
     // support for trailing comma in argument list
     (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),+ , )) => {
         $crate::com_call_getter!(|$outparam| $obj, $interface::$method($($arg),+))
+    };
+}
+
+pub fn get_cotaskmem<F, T>(getter: F) -> Result<CoTaskMem>
+where
+    F: FnOnce(*mut *mut T) -> HRESULT,
+{
+    let mut ptr = ptr::null_mut() as *mut T;
+
+    // Throw away successful HRESULT.
+    succeeded_or_err(getter(&mut ptr))?;
+
+    if ptr.is_null() {
+        Err(Error {
+            code: Some(NullPtr),
+            function: None,
+            file_line: None,
+        })
+    } else {
+        Ok(unsafe { CoTaskMem::wrap(ptr as LPVOID).unwrap() })
+    }
+}
+
+/// Call a method, getting a memory pointer that is returned through a `CoTaskMem` output
+/// parameter.
+#[macro_export]
+macro_rules! com_call_cotaskmem_getter {
+    (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),* )) => {{
+        $crate::com::get_cotaskmem(|$outparam| {
+            $obj.$method($($arg),*)
+        }).function(concat!(stringify!($interface), "::", stringify!($method)))
+          .file_line(file!(), line!())
+    }};
+
+    // support for trailing comma in argument list
+    (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),+ , )) => {
+        $crate::com_call_cotaskmem_getter!(|$outparam| $obj, $interface::$method($($arg),+))
     };
 }

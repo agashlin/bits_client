@@ -9,7 +9,8 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
-    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsJobStatus, BitsProxyUsage, E_FAIL,
+    BackgroundCopyManager, BitsErrorContext, BitsJob, BitsJobPriority, BitsJobState,
+    BitsProxyUsage, E_FAIL,
 };
 use guid_win::Guid;
 
@@ -17,15 +18,28 @@ use bits_protocol::*;
 
 use super::Error;
 
-// This is a macro in order to use NotFound from whatever enum is in scope.
+// This is a macro in order to use the NotFound and GetJob variants from whatever enum is in scope.
 macro_rules! get_job {
-    ($guid:expr, $name:expr) => {{
-        BackgroundCopyManager::connect()
-            .map_err(|e| Other(e.to_string()))?
-            .find_job_by_guid_and_name($guid, $name)
-            .map_err(|e| GetJob(e.get_hresult().unwrap()))?
+    ($bcm:ident, $guid:expr, $name:expr) => {{
+        $bcm = BackgroundCopyManager::connect().map_err(|e| Other(e.to_string()))?;
+        $bcm.find_job_by_guid_and_name($guid, $name)
+            .map_err(|e| GetJob($crate::in_process::format_error(&$bcm, e)))?
             .ok_or(NotFound)?
     }};
+}
+
+fn format_error(bcm: &BackgroundCopyManager, error: comedy::Error) -> HResultMessage {
+    let hr = error.get_hresult().unwrap();
+    let bits_description = bcm.get_error_description(hr).ok();
+
+    HResultMessage {
+        hr,
+        message: if let Some(desc) = bits_description {
+            format!("{}: {}", error, desc)
+        } else {
+            format!("{}", error)
+        },
+    }
 }
 
 /// The in-process client uses direct BITS calls via the `bits` crate.
@@ -63,15 +77,12 @@ impl InProcessClient {
         let mut full_path = self.save_path_prefix.clone();
         full_path.push(save_path.as_os_str());
 
-        let mut job = BackgroundCopyManager::connect()
-            .map_err(|e| Other(e.to_string()))?
+        let bcm = BackgroundCopyManager::connect().map_err(|e| Other(e.to_string()))?;
+        let mut job = bcm
             .create_job(&self.job_name)
-            .map_err(|e| Create(e.get_hresult().unwrap()))?;
+            .map_err(|e| Create(format_error(&bcm, e)))?;
 
-        // TODO: logging for the rest of these errors?
-        let guid = job
-            .guid()
-            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+        let guid = job.guid().map_err(|e| OtherBITS(format_error(&bcm, e)))?;
 
         (|| {
             job.set_proxy_usage(proxy_usage)?;
@@ -83,15 +94,15 @@ impl InProcessClient {
 
             Ok(())
         })()
-        .map_err(|e: comedy::Error| OtherBITS(e.get_hresult().unwrap()))?;
+        .map_err(|e| ApplySettings(format_error(&bcm, e)))?;
 
         let (client, control) = InProcessMonitor::new(&mut job, monitor_interval_millis)
-            .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+            .map_err(|e| OtherBITS(format_error(&bcm, e)))?;
 
         job.add_file(&url, &full_path)
-            .map_err(|e| AddFile(e.get_hresult().unwrap()))?;
+            .map_err(|e| AddFile(format_error(&bcm, e)))?;
 
-        job.resume().map_err(|e| Resume(e.get_hresult().unwrap()))?;
+        job.resume().map_err(|e| Resume(format_error(&bcm, e)))?;
 
         self.monitors.insert(guid.clone(), control);
 
@@ -105,9 +116,10 @@ impl InProcessClient {
     ) -> Result<InProcessMonitor, MonitorJobFailure> {
         use MonitorJobFailure::*;
 
+        let bcm;
         let (client, control) =
-            InProcessMonitor::new(&mut get_job!(&guid, &self.job_name), interval_millis)
-                .map_err(|e| OtherBITS(e.get_hresult().unwrap()))?;
+            InProcessMonitor::new(&mut get_job!(bcm, &guid, &self.job_name), interval_millis)
+                .map_err(|e| OtherBITS(format_error(&bcm, e)))?;
 
         // Stop any preexisting monitor for the same guid
         let _ = self.stop_update(guid.clone());
@@ -120,9 +132,10 @@ impl InProcessClient {
     pub fn suspend_job(&mut self, guid: Guid) -> Result<(), SuspendJobFailure> {
         use SuspendJobFailure::*;
 
-        get_job!(&guid, &self.job_name)
+        let bcm;
+        get_job!(bcm, &guid, &self.job_name)
             .suspend()
-            .map_err(|e| SuspendJob(e.get_hresult().unwrap()))?;
+            .map_err(|e| SuspendJob(format_error(&bcm, e)))?;
 
         Ok(())
     }
@@ -130,9 +143,10 @@ impl InProcessClient {
     pub fn resume_job(&mut self, guid: Guid) -> Result<(), ResumeJobFailure> {
         use ResumeJobFailure::*;
 
-        get_job!(&guid, &self.job_name)
+        let bcm;
+        get_job!(bcm, &guid, &self.job_name)
             .resume()
-            .map_err(|e| ResumeJob(e.get_hresult().unwrap()))?;
+            .map_err(|e| ResumeJob(format_error(&bcm, e)))?;
 
         Ok(())
     }
@@ -150,9 +164,10 @@ impl InProcessClient {
             BitsJobPriority::Normal
         };
 
-        get_job!(&guid, &self.job_name)
+        let bcm;
+        get_job!(bcm, &guid, &self.job_name)
             .set_priority(priority)
-            .map_err(|e| ApplySettings(e.get_hresult().unwrap()))?;
+            .map_err(|e| ApplySettings(format_error(&bcm, e)))?;
 
         Ok(())
     }
@@ -162,6 +177,7 @@ impl InProcessClient {
             if let Some(sender) = occ.get().0.upgrade() {
                 Some(sender)
             } else {
+                // Remove dangling Weak
                 occ.remove_entry();
                 None
             }
@@ -202,9 +218,10 @@ impl InProcessClient {
     pub fn complete_job(&mut self, guid: Guid) -> Result<(), CompleteJobFailure> {
         use CompleteJobFailure::*;
 
-        get_job!(&guid, &self.job_name)
+        let bcm;
+        get_job!(bcm, &guid, &self.job_name)
             .complete()
-            .map_err(|e| CompleteJob(e.get_hresult().unwrap()))?;
+            .map_err(|e| CompleteJob(format_error(&bcm, e)))?;
 
         let _ = self.stop_update(guid);
 
@@ -214,9 +231,10 @@ impl InProcessClient {
     pub fn cancel_job(&mut self, guid: Guid) -> Result<(), CancelJobFailure> {
         use CancelJobFailure::*;
 
-        get_job!(&guid, &self.job_name)
+        let bcm;
+        get_job!(bcm, &guid, &self.job_name)
             .cancel()
-            .map_err(|e| CancelJob(e.get_hresult().unwrap()))?;
+            .map_err(|e| CancelJob(format_error(&bcm, e)))?;
 
         let _ = self.stop_update(guid);
 
@@ -241,6 +259,7 @@ pub struct InProcessMonitor {
     vars: Arc<ControlPair>,
     guid: Guid,
     last_status_time: Option<Instant>,
+    last_url: Option<String>,
 }
 
 impl InProcessMonitor {
@@ -291,6 +310,7 @@ impl InProcessMonitor {
             guid,
             vars,
             last_status_time: None,
+            last_url: None,
         };
 
         Ok((monitor, control))
@@ -300,7 +320,7 @@ impl InProcessMonitor {
         Ok(BackgroundCopyManager::connect()?.get_job_by_guid(&self.guid)?)
     }
 
-    pub fn get_status(&mut self, timeout_millis: u32) -> Result<BitsJobStatus, Error> {
+    pub fn get_status(&mut self, timeout_millis: u32) -> Result<JobStatus, Error> {
         let timeout = Duration::from_millis(timeout_millis as u64);
 
         let started = Instant::now();
@@ -346,9 +366,31 @@ impl InProcessMonitor {
             self.last_status_time = Some(Instant::now());
             self.job()
         })
-        .and_then(|job| {
+        .and_then(|mut job| {
             // Got job successfully, get status.
-            job.get_status().map_err(|_| Error::NotConnected)
+            let status = job.get_status().map_err(|_| Error::NotConnected)?;
+            let url = job.get_first_file()?.get_remote_name()?;
+
+            Ok(JobStatus {
+                state: BitsJobState::from(status.state),
+                progress: status.progress,
+                error_count: status.error_count,
+                error: status.error.map(|e| JobError {
+                    context: BitsErrorContext::from(e.context),
+                    context_str: e.context_str,
+                    error: HResultMessage {
+                        hr: e.error,
+                        message: e.error_str,
+                    },
+                }),
+                times: status.times,
+                url: if self.last_url.is_some() && *self.last_url.as_ref().unwrap() == url {
+                    None
+                } else {
+                    self.last_url = Some(url);
+                    self.last_url.clone()
+                },
+            })
         })
         .or_else(|e| {
             // On any error, disconnect.

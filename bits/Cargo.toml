@@ -21,6 +21,7 @@ winapi = { version = "0.3.6", features = ["basetsd",
                                           "rpcndr",
                                           "unknwnbase",
                                           "winerror",
+                                          "winnls",
                                           ] }
 
 serde = { version = "1.0.80", optional = true }

@@ -5,7 +5,7 @@ use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};
 #[cfg(feature = "status_serde")]
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobStatus {
     pub state: BG_JOB_STATE,
@@ -15,11 +15,13 @@ pub struct BitsJobStatus {
     pub times: BitsJobTimes,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobError {
     pub context: BG_ERROR_CONTEXT,
+    pub context_str: String,
     pub error: HRESULT,
+    pub error_str: String,
 }
 
 #[derive(Copy, Clone, Debug)]

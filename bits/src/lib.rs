@@ -17,13 +17,13 @@ use std::ptr;
 use std::result;
 
 use comedy::com::{create_instance_local_server, ComPtr, INIT_MTA};
-use comedy::error::{Error, ErrorCode, FileLine, ResultExt};
-use comedy::handle::CoTaskMem;
+use comedy::error::{Error, ResultExt};
 use comedy::wide::{FromWide, ToWide};
-use comedy::{com_call, com_call_getter};
+use comedy::{com_call, com_call_cotaskmem_getter, com_call_getter};
 use filetime_win::FileTime;
 use guid_win::Guid;
-use winapi::shared::ntdef::{LPWSTR, ULONG};
+use winapi::shared::minwindef::DWORD;
+use winapi::shared::ntdef::{LANGIDFROMLCID, LPWSTR, ULONG};
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyFile, IBackgroundCopyJob, IBackgroundCopyManager,
     IEnumBackgroundCopyFiles, IEnumBackgroundCopyJobs, BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND,
@@ -35,9 +35,12 @@ use winapi::um::bits::{
 use winapi::um::bits2_5::BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT;
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
+use winapi::um::winnls::GetThreadLocale;
 use winapi::RIDL;
 
-pub use status::{BitsJobError, BitsJobProgress, BitsJobStatus, BitsJobTimes};
+pub use status::{
+    BitsErrorContext, BitsJobError, BitsJobProgress, BitsJobState, BitsJobStatus, BitsJobTimes,
+};
 
 pub use winapi::shared::winerror::E_FAIL;
 
@@ -190,21 +193,27 @@ impl BackgroundCopyManager {
             Ok(None)
         }
     }
+
+    pub fn get_error_description(&self, hr: HRESULT) -> Result<String> {
+        unsafe {
+            let language_id = LANGIDFROMLCID(GetThreadLocale()) as DWORD;
+
+            Ok(OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+                |desc| self.0,
+                IBackgroundCopyManager::GetErrorDescription(hr, language_id, desc)
+            )? as LPWSTR)
+            .to_string_lossy()
+            .into_owned())
+        }
+    }
 }
 
 fn job_name_eq(job: &ComPtr<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
     let job_name = unsafe {
-        let mut job_name = ptr::null_mut() as LPWSTR;
-
-        com_call!(job, IBackgroundCopyJob::GetDisplayName(&mut job_name))?;
-
-        let _job_name_handle = CoTaskMem::wrap(job_name as *mut _).map_err(|()| Error {
-            code: Some(ErrorCode::NullPtr),
-            function: Some("IBackgroundCopyJob::GetDisplayName"),
-            file_line: Some(FileLine(file!(), line!())),
-        })?;
-
-        OsString::from_wide_ptr_null(job_name)
+        OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+            |name| job,
+            IBackgroundCopyJob::GetDisplayName(name)
+        )? as LPWSTR)
     };
 
     Ok(job_name == match_name)
@@ -421,13 +430,27 @@ impl BitsJob {
             com_call!(
                 error_obj,
                 IBackgroundCopyError::GetError(&mut context, &mut hresult)
-            )
-        }?;
+            )?;
 
-        Ok(BitsJobError {
-            context,
-            error: hresult,
-        })
+            let language_id = LANGIDFROMLCID(GetThreadLocale()) as DWORD;
+
+            Ok(BitsJobError {
+                context,
+                context_str: OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+                    |desc| error_obj,
+                    IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
+                )? as LPWSTR)
+                .to_string_lossy()
+                .into_owned(),
+                error: hresult,
+                error_str: OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+                    |desc| error_obj,
+                    IBackgroundCopyError::GetErrorDescription(language_id, desc)
+                )? as LPWSTR)
+                .to_string_lossy()
+                .into_owned(),
+            })
+        }
     }
 
     unsafe fn set_notify_interface(&self, interface: *mut IUnknown) -> Result<()> {
@@ -439,17 +462,14 @@ impl BitsJob {
 pub struct BitsFile(ComPtr<IBackgroundCopyFile>);
 
 impl BitsFile {
-    pub fn get_remote_name(&self) -> Result<OsString> {
+    pub fn get_remote_name(&self) -> Result<String> {
         unsafe {
-            let mut file_name = ptr::null_mut() as LPWSTR;
-            com_call!(self.0, IBackgroundCopyFile::GetRemoteName(&mut file_name))?;
-            CoTaskMem::wrap(file_name as *mut _)
-                .map_err(|()| Error {
-                    code: Some(ErrorCode::NullPtr),
-                    function: Some("IBackgroundCopyFile::GetRemoteName"),
-                    file_line: Some(FileLine(file!(), line!())),
-                })
-                .map(|_cotaskmem| OsString::from_wide_ptr_null(file_name))
+            Ok(OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+                |name| self.0,
+                IBackgroundCopyFile::GetRemoteName(name)
+            )? as LPWSTR)
+            .to_string_lossy()
+            .into_owned())
         }
     }
 }
