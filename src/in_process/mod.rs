@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use bits::{
     BackgroundCopyManager, BitsErrorContext, BitsJob, BitsJobPriority, BitsJobState,
-    BitsProxyUsage, E_FAIL,
+    BitsProxyUsage, BG_S_PARTIAL_COMPLETE, E_FAIL,
 };
 use guid_win::Guid;
 
@@ -221,7 +221,14 @@ impl InProcessClient {
         let bcm;
         get_job!(bcm, &guid, &self.job_name)
             .complete()
-            .map_err(|e| CompleteJob(format_error(&bcm, e)))?;
+            .map_err(|e| CompleteJob(format_error(&bcm, e)))
+            .and_then(|hr| {
+                if hr == BG_S_PARTIAL_COMPLETE as i32 {
+                    Err(PartialComplete)
+                } else {
+                    Ok(())
+                }
+            })?;
 
         let _ = self.stop_update(guid);
 

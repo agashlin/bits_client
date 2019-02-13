@@ -38,6 +38,9 @@ use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnls::GetThreadLocale;
 use winapi::RIDL;
 
+pub use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};
+pub use winapi::um::bitsmsg::{BG_S_PARTIAL_COMPLETE, BG_S_UNABLE_TO_DELETE_FILES};
+
 pub use status::{
     BitsErrorContext, BitsJobError, BitsJobProgress, BitsJobState, BitsJobStatus, BitsJobTimes,
 };
@@ -324,15 +327,15 @@ impl BitsJob {
         Ok(())
     }
 
-    pub fn complete(&mut self) -> Result<()> {
-        unsafe { com_call!(self.0, IBackgroundCopyJob::Complete()) }?;
-        // TODO check for partial completion
-        Ok(())
+    /// Has two interesting success `HRESULT`s: `BG_S_PARTIAL_COMPLETE` and
+    /// `BG_S_UNABLE_TO_DELETE_FILES`.
+    pub fn complete(&mut self) -> Result<HRESULT> {
+        unsafe { com_call!(self.0, IBackgroundCopyJob::Complete()) }
     }
 
-    pub fn cancel(&mut self) -> Result<()> {
-        unsafe { com_call!(self.0, IBackgroundCopyJob::Cancel()) }?;
-        Ok(())
+    /// Has an interesting success `HRESULT`: `BG_S_UNABLE_TO_DELETE_FILES`.
+    pub fn cancel(&mut self) -> Result<HRESULT> {
+        unsafe { com_call!(self.0, IBackgroundCopyJob::Cancel()) }
     }
 
     pub fn register_callbacks(
