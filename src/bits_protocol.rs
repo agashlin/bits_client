@@ -261,7 +261,7 @@ pub struct JobStatus {
     pub error: Option<JobError>,
     pub times: BitsJobTimes,
     /// None means same as last time
-    pub url: Option<String>,
+    pub url: Option<OsString>,
 }
 
 #[derive(Clone, Debug)]

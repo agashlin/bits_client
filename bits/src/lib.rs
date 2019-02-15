@@ -465,14 +465,12 @@ impl BitsJob {
 pub struct BitsFile(ComPtr<IBackgroundCopyFile>);
 
 impl BitsFile {
-    pub fn get_remote_name(&self) -> Result<String> {
+    pub fn get_remote_name(&self) -> Result<OsString> {
         unsafe {
             Ok(OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
                 |name| self.0,
                 IBackgroundCopyFile::GetRemoteName(name)
-            )? as LPWSTR)
-            .to_string_lossy()
-            .into_owned())
+            )? as LPWSTR))
         }
     }
 }

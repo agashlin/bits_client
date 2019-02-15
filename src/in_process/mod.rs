@@ -266,7 +266,7 @@ pub struct InProcessMonitor {
     vars: Arc<ControlPair>,
     guid: Guid,
     last_status_time: Option<Instant>,
-    last_url: Option<String>,
+    last_url: Option<ffi::OsString>,
 }
 
 impl InProcessMonitor {
