@@ -5,6 +5,7 @@
 use std::cmp;
 use std::collections::{hash_map, HashMap};
 use std::ffi;
+use std::path;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -47,7 +48,7 @@ fn format_error(bcm: &BackgroundCopyManager, error: comedy::Error) -> HResultMes
 /// Note that "in-process" does not refer to the BITS COM server, which is out-of-process.
 pub struct InProcessClient {
     job_name: ffi::OsString,
-    save_path_prefix: ffi::OsString,
+    save_path_prefix: path::PathBuf,
     monitors: HashMap<Guid, InProcessMonitorControl>,
 }
 
@@ -58,7 +59,7 @@ impl InProcessClient {
     ) -> Result<InProcessClient, Error> {
         Ok(InProcessClient {
             job_name,
-            save_path_prefix,
+            save_path_prefix: path::PathBuf::from(save_path_prefix),
             monitors: HashMap::new(),
         })
     }
@@ -73,9 +74,28 @@ impl InProcessClient {
         use StartJobFailure::*;
         // TODO should the job be cleaned up if this fcn can't return success?
 
-        // TODO normalize and verify path after append
-        let mut full_path = self.save_path_prefix.clone();
-        full_path.push(save_path.as_os_str());
+        let full_path = self.save_path_prefix.join(save_path);
+        {
+            let canonical_prefix = self.save_path_prefix.canonicalize().map_err(|e| {
+                ArgumentValidation(format!("save_path_prefix.canonicalize(): {}", e))
+            })?;
+            // Full path minus file name, canonicalize() fails with nonexistent files, but the
+            // parent directory ought to exist.
+            let canonical_full_path = full_path
+                .parent()
+                .ok_or_else(|| ArgumentValidation("full_path.parent(): None".into()))?
+                .canonicalize()
+                .map_err(|e| {
+                    ArgumentValidation(format!("full_path.parent().canonicalize(): {}", e))
+                })?;
+
+            if !canonical_full_path.starts_with(&canonical_prefix) {
+                return Err(ArgumentValidation(format!(
+                    "{:?} is not within {:?}",
+                    canonical_full_path, canonical_prefix
+                )));
+            }
+        }
 
         let bcm = BackgroundCopyManager::connect().map_err(|e| Other(e.to_string()))?;
         let mut job = bcm
@@ -99,7 +119,7 @@ impl InProcessClient {
         let (client, control) = InProcessMonitor::new(&mut job, monitor_interval_millis)
             .map_err(|e| OtherBITS(format_error(&bcm, e)))?;
 
-        job.add_file(&url, &full_path)
+        job.add_file(&url, &full_path.into_os_string())
             .map_err(|e| AddFile(format_error(&bcm, e)))?;
 
         job.resume().map_err(|e| Resume(format_error(&bcm, e)))?;

@@ -62,7 +62,7 @@ fn entry() -> Result {
     let mut client = match () {
         _ => BitsClient::new(
             OsString::from("bits_client test"),
-            OsString::from("C:\\ProgramData\\"),
+            OsString::from("C:\\ProgramData"),
         )?,
     };
 
