@@ -96,9 +96,22 @@ impl Debug for FileTime {
 
 impl Debug for SystemTimeUTC {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "SystemTimeUTC {{ wYear: {:?}, wMonth: {:?}, wDayOfWeek: {:?}, wDay: {:?}, wHour: {:?}, wMinute: {:?}, wSecond: {:?}, wMilliseconds: {:?}",
-               self.0.wYear, self.0.wMonth, self.0.wDayOfWeek, self.0.wDay,
-               self.0.wHour, self.0.wMinute, self.0.wSecond, self.0.wMilliseconds)
+        write!(
+            f,
+            concat!(
+                "SystemTimeUTC {{ ",
+                "wYear: {:?}, wMonth: {:?}, wDayOfWeek: {:?}, wDay: {:?}, ",
+                "wHour: {:?}, wMinute: {:?}, wSecond: {:?}, wMilliseconds: {:?} }}"
+            ),
+            self.0.wYear,
+            self.0.wMonth,
+            self.0.wDayOfWeek,
+            self.0.wDay,
+            self.0.wHour,
+            self.0.wMinute,
+            self.0.wSecond,
+            self.0.wMilliseconds
+        )
     }
 }
 
