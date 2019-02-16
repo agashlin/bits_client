@@ -2,6 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+//! An interface for managing and monitoring BITS jobs. BITS is a Windows service for file
+//! downloads independent from an application, usually via HTTP/HTTPS.
+//!
+//! [`BitsClient`](enum.BitsClient.html) is the main interface.
+//!
+//! Microsoft's documentation for BITS can be found at
+//! <https://docs.microsoft.com/en-us/windows/desktop/Bits/background-intelligent-transfer-service-portal>
+
 extern crate bits;
 extern crate comedy;
 extern crate failure;
@@ -24,8 +32,8 @@ pub use bits_protocol::{JobError, JobStatus};
 pub use comedy::Error as ComedyError;
 pub use guid_win::Guid;
 
-// These errors would come from a Local Service client, this enum properly lives in the
-// crate that deals with named pipes, but it isn't in use now.
+// These errors would come from a Local Service client but are mostly unused currently.
+// PipeError properly lives in the crate that deals with named pipes, but it isn't in use now.
 #[derive(Clone, Debug, Eq, Fail, PartialEq)]
 pub enum PipeError {
     #[fail(display = "Pipe is not connected")]
@@ -46,26 +54,36 @@ impl convert::From<ComedyError> for PipeError {
 
 pub use PipeError as Error;
 
+/// A client object for interacting with BITS.
+///
+/// Methods on `BitsClient` return a `Result<Result<_, XyzFailure>, Error>`. The outer `Result`
+/// is `Err` if there was a communication error in sending the associated command or receiving
+/// its response. Currently this is always `Ok` as all clients are in-process. The inner
+/// `Result` is `Err` if there was an error executing the command.
+///
+/// A single `BitsClient` can be used with multiple BITS jobs simultaneously; generally a job
+/// is not bound tightly to a client.
+///
+/// A `BitsClient` tracks all [`BitsMonitorClient`s](enum.BitsMonitorClient.html) that it started
+/// with `start_job()` or `monitor_job()`, so that the monitor can be stopped or modified.
 pub enum BitsClient {
-    /// The `InProcess` variant does all BITS calls directly.
+    // The `InProcess` variant does all BITS calls directly.
+    #[doc(hidden)]
     InProcess(in_process::InProcessClient),
     // Space is reserved here for the LocalService variant, which will work through an external
     // process running as Local Service.
 }
 
-use BitsClient::*;
+use BitsClient::InProcess;
 
-/// A client object for interfacing with BITS.
-///
-/// Methods on `BitsClient` usually return a `Result<Result<_, xyzFailure>>`. The outer `Result`
-/// is `Err` if there was a communication error in sending the associated command or receiving
-/// its response. Currently this is always `Ok` as all clients are in-process. The inner
-/// `Result` is `Err` if there was an error executing the command.
 impl BitsClient {
     /// Create an in-process `BitsClient`.
+    ///
     /// `job_name` will be used when creating jobs, and this `BitsClient` can only be used to
     /// manipulate jobs with that name.
-    /// `save_path_prefix` will be prepended to the local `save_path` given to `start_job()`
+    ///
+    /// `save_path_prefix` will be prepended to the local `save_path` given to `start_job()`, it
+    /// must name an existing directory.
     pub fn new(
         job_name: ffi::OsString,
         save_path_prefix: ffi::OsString,
@@ -78,6 +96,9 @@ impl BitsClient {
 
     /// Start a job to download a single file at `url` to local path `save_path` (relative to the
     /// `save_path_prefix` given when constructing the `BitsClient`).
+    ///
+    /// `save_path_prefix` combined with `save_path` must name a file (existing or not) in an
+    /// existing directory, which must be under the directory named by `save_path_prefix`.
     ///
     /// `proxy_usage` determines what proxy will be used.
     ///
@@ -100,6 +121,11 @@ impl BitsClient {
 
     /// Start monitoring the job with id `guid` approximately once per `monitor_interval_millis`
     /// milliseconds.
+    ///
+    /// The returned `Ok(monitor)` is a monitor client to be polled for periodic updates.
+    ///
+    /// There can only be one ongoing `BitsMonitorClient` for each job associated with a given
+    /// `BitsClient`. If a monitor client already exists for the specified job, it will be stopped.
     pub fn monitor_job(
         &mut self,
         guid: Guid,
@@ -131,6 +157,8 @@ impl BitsClient {
     /// `foreground == true` will set the priority to `BG_JOB_PRIORITY_FOREGROUND`,
     /// `false` will use the default `BG_JOB_PRIORITY_NORMAL`.
     /// See the Microsoft documentation for `BG_JOB_PRIORITY` for details.
+    ///
+    /// A job created by `start_job()` will be foreground priority, by default.
     pub fn set_job_priority(
         &mut self,
         guid: Guid,
@@ -181,7 +209,7 @@ impl BitsClient {
     }
 }
 
-/// A `BitsMonitorClient` is the client side of a monitor for a particular BITS job.
+/// A `BitsMonitorClient` is the client side of a monitor for a BITS job.
 pub enum BitsMonitorClient {
     InProcess(in_process::InProcessMonitor),
 }
@@ -189,10 +217,10 @@ pub enum BitsMonitorClient {
 impl BitsMonitorClient {
     /// `get_status` will return a result approximately every `monitor_interval_millis`
     /// milliseconds, but in case a result isn't available within `timeout_millis` milliseconds
-    /// this will return `Err(Error::Timeout)`. Any `Err` returned is usually a sign that the
-    /// connection has been dropped.
+    /// this will return `Err(Error::Timeout)`. Any `Err` returned indicates that the monitor
+    /// has been stopped, the `BitsMonitorClient` should then be discarded.
     ///
-    /// If there is an error or the job transfer completes, a result may be available sooner than
+    /// If there is an error or the transfer completes, a result may be available sooner than
     /// the monitor interval.
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<JobStatus, Error> {
         match self {

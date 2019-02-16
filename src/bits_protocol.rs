@@ -2,27 +2,36 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::ffi::OsString;
+//! Command, response, and status types.
 
+use std::ffi::OsString;
+use std::fmt;
+use std::result;
+
+use failure::Fail;
 use guid_win::Guid;
 
-use super::{BitsErrorContext, BitsJobProgress, BitsJobState, BitsJobTimes};
+use super::{BitsErrorContext, BitsJobProgress, BitsJobState, BitsJobTimes, BitsProxyUsage};
 
 type HRESULT = i32;
 
-#[derive(Clone, Debug)]
+/// An HRESULT with a descriptive message
+#[derive(Clone, Debug, Fail)]
 pub struct HResultMessage {
     pub hr: HRESULT,
     pub message: String,
 }
 
-// TODO: real sizes checked against something reasonable
-pub const MAX_COMMAND: usize = 0x4000;
-pub const MAX_RESPONSE: usize = 0x4000;
+impl fmt::Display for HResultMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}", self.message)
+    }
+}
 
-pub const PROTOCOL_VERSION: u8 = 0;
-
-// Any command
+/// Commands which can be sent to the server.
+///
+/// This is currently unused as the out-of-process Local Service server is not finished.
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub enum Command {
     StartJob(StartJobCommand),
@@ -35,48 +44,22 @@ pub enum Command {
     CancelJob(CancelJobCommand),
 }
 
+/// Combine a [`Command`](enum.Command.html) with its success and failure result types.
+#[doc(hidden)]
 pub trait CommandType {
     type Success;
-    type Failure;
+    type Failure: Fail;
     fn new(command: Self) -> Command;
 }
 
-#[derive(Clone, Debug)]
-pub struct MonitorConfig {
-    pub pipe_name: OsString,
-    pub interval_millis: u32,
-}
-
-#[derive(Clone, Debug)]
-pub enum ProxyUsage {
-    Preconfig,
-    NoProxy,
-    AutoDetect,
-}
-
 // Start Job
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct StartJobCommand {
     pub url: OsString,
     pub save_path: OsString,
-    pub proxy_usage: ProxyUsage,
+    pub proxy_usage: BitsProxyUsage,
     pub monitor: Option<MonitorConfig>,
-}
-
-#[derive(Clone, Debug)]
-pub struct StartJobSuccess {
-    pub guid: Guid,
-}
-
-#[derive(Clone, Debug)]
-pub enum StartJobFailure {
-    ArgumentValidation(String),
-    Create(HResultMessage),
-    AddFile(HResultMessage),
-    ApplySettings(HResultMessage),
-    Resume(HResultMessage),
-    OtherBITS(HResultMessage),
-    Other(String),
 }
 
 impl CommandType for StartJobCommand {
@@ -87,20 +70,42 @@ impl CommandType for StartJobCommand {
     }
 }
 
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct MonitorConfig {
+    pub pipe_name: OsString,
+    pub interval_millis: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct StartJobSuccess {
+    pub guid: Guid,
+}
+
+#[derive(Clone, Debug, Fail)]
+pub enum StartJobFailure {
+    #[fail(display = "Argument validation failed: {}", _0)]
+    ArgumentValidation(String),
+    #[fail(display = "Create job: {}", _0)]
+    Create(HResultMessage),
+    #[fail(display = "Add file to job: {}", _0)]
+    AddFile(HResultMessage),
+    #[fail(display = "Apply settings to job: {}", _0)]
+    ApplySettings(HResultMessage),
+    #[fail(display = "Resume job: {}", _0)]
+    Resume(HResultMessage),
+    #[fail(display = "BITS error: {}", _0)]
+    OtherBITS(HResultMessage),
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
 // Monitor Job
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct MonitorJobCommand {
     pub guid: Guid,
     pub monitor: MonitorConfig,
-}
-
-#[derive(Clone, Debug)]
-pub enum MonitorJobFailure {
-    ArgumentValidation(String),
-    NotFound,
-    GetJob(HResultMessage),
-    OtherBITS(HResultMessage),
-    Other(String),
 }
 
 impl CommandType for MonitorJobCommand {
@@ -111,19 +116,25 @@ impl CommandType for MonitorJobCommand {
     }
 }
 
+#[derive(Clone, Debug, Fail)]
+pub enum MonitorJobFailure {
+    #[fail(display = "Argument validation failed: {}", _0)]
+    ArgumentValidation(String),
+    #[fail(display = "Job not found")]
+    NotFound,
+    #[fail(display = "Get job: {}", _0)]
+    GetJob(HResultMessage),
+    #[fail(display = "BITS error: {}", _0)]
+    OtherBITS(HResultMessage),
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
 // Suspend Job
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct SuspendJobCommand {
     pub guid: Guid,
-}
-
-#[derive(Clone, Debug)]
-pub enum SuspendJobFailure {
-    NotFound,
-    GetJob(HResultMessage),
-    SuspendJob(HResultMessage),
-    OtherBITS(HResultMessage),
-    Other(String),
 }
 
 impl CommandType for SuspendJobCommand {
@@ -134,19 +145,25 @@ impl CommandType for SuspendJobCommand {
     }
 }
 
+#[derive(Clone, Debug, Fail)]
+pub enum SuspendJobFailure {
+    #[fail(display = "Job not found")]
+    NotFound,
+    #[fail(display = "Get job: {}", _0)]
+    GetJob(HResultMessage),
+    #[fail(display = "Suspend job: {}", _0)]
+    SuspendJob(HResultMessage),
+    #[fail(display = "BITS error: {}", _0)]
+    OtherBITS(HResultMessage),
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
 // Resume Job
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct ResumeJobCommand {
     pub guid: Guid,
-}
-
-#[derive(Clone, Debug)]
-pub enum ResumeJobFailure {
-    NotFound,
-    GetJob(HResultMessage),
-    ResumeJob(HResultMessage),
-    OtherBITS(HResultMessage),
-    Other(String),
 }
 
 impl CommandType for ResumeJobCommand {
@@ -157,20 +174,26 @@ impl CommandType for ResumeJobCommand {
     }
 }
 
+#[derive(Clone, Debug, Fail)]
+pub enum ResumeJobFailure {
+    #[fail(display = "Job not found")]
+    NotFound,
+    #[fail(display = "Get job: {}", _0)]
+    GetJob(HResultMessage),
+    #[fail(display = "Resume job: {}", _0)]
+    ResumeJob(HResultMessage),
+    #[fail(display = "BITS error: {}", _0)]
+    OtherBITS(HResultMessage),
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
 // Set Job Priority
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct SetJobPriorityCommand {
     pub guid: Guid,
     pub foreground: bool,
-}
-
-#[derive(Clone, Debug)]
-pub enum SetJobPriorityFailure {
-    NotFound,
-    GetJob(HResultMessage),
-    ApplySettings(HResultMessage),
-    OtherBITS(HResultMessage),
-    Other(String),
 }
 
 impl CommandType for SetJobPriorityCommand {
@@ -181,18 +204,26 @@ impl CommandType for SetJobPriorityCommand {
     }
 }
 
+#[derive(Clone, Debug, Fail)]
+pub enum SetJobPriorityFailure {
+    #[fail(display = "Job not found")]
+    NotFound,
+    #[fail(display = "Get job: {}", _0)]
+    GetJob(HResultMessage),
+    #[fail(display = "Apply settings to job: {}", _0)]
+    ApplySettings(HResultMessage),
+    #[fail(display = "BITS error: {}", _0)]
+    OtherBITS(HResultMessage),
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
 // Set Update Interval
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct SetUpdateIntervalCommand {
     pub guid: Guid,
     pub interval_millis: u32,
-}
-
-#[derive(Clone, Debug)]
-pub enum SetUpdateIntervalFailure {
-    ArgumentValidation(String),
-    NotFound,
-    Other(String),
 }
 
 impl CommandType for SetUpdateIntervalCommand {
@@ -203,20 +234,21 @@ impl CommandType for SetUpdateIntervalCommand {
     }
 }
 
+#[derive(Clone, Debug, Fail)]
+pub enum SetUpdateIntervalFailure {
+    #[fail(display = "Argument validation: {}", _0)]
+    ArgumentValidation(String),
+    #[fail(display = "Monitor not found")]
+    NotFound,
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
 // Complete Job
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct CompleteJobCommand {
     pub guid: Guid,
-}
-
-#[derive(Clone, Debug)]
-pub enum CompleteJobFailure {
-    NotFound,
-    GetJob(HResultMessage),
-    CompleteJob(HResultMessage),
-    PartialComplete,
-    OtherBITS(HResultMessage),
-    Other(String),
 }
 
 impl CommandType for CompleteJobCommand {
@@ -227,19 +259,27 @@ impl CommandType for CompleteJobCommand {
     }
 }
 
+#[derive(Clone, Debug, Fail)]
+pub enum CompleteJobFailure {
+    #[fail(display = "Job not found")]
+    NotFound,
+    #[fail(display = "Get job: {}", _0)]
+    GetJob(HResultMessage),
+    #[fail(display = "Complete job: {}", _0)]
+    CompleteJob(HResultMessage),
+    #[fail(display = "Job only partially completed")]
+    PartialComplete,
+    #[fail(display = "BITS error: {}", _0)]
+    OtherBITS(HResultMessage),
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
 // Cancel Job
+#[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct CancelJobCommand {
     pub guid: Guid,
-}
-
-#[derive(Clone, Debug)]
-pub enum CancelJobFailure {
-    NotFound,
-    GetJob(HResultMessage),
-    CancelJob(HResultMessage),
-    OtherBITS(HResultMessage),
-    Other(String),
 }
 
 impl CommandType for CancelJobCommand {
@@ -250,9 +290,24 @@ impl CommandType for CancelJobCommand {
     }
 }
 
-// Status report
-// This has more enums than bits::status::BitsJobStatus, and includes a URL which updates with
-// redirect.
+#[derive(Clone, Debug, Fail)]
+pub enum CancelJobFailure {
+    #[fail(display = "Job not found")]
+    NotFound,
+    #[fail(display = "Get job: {}", _0)]
+    GetJob(HResultMessage),
+    #[fail(display = "Cancel job: {}", _0)]
+    CancelJob(HResultMessage),
+    #[fail(display = "BITS error: {}", _0)]
+    OtherBITS(HResultMessage),
+    #[fail(display = "Other failure: {}", _0)]
+    Other(String),
+}
+
+/// Job status report
+///
+/// This has more useful enums than `bits::status::BitsJobStatus`, and includes a URL which updates
+/// with redirect.
 #[derive(Clone, Debug)]
 pub struct JobStatus {
     pub state: BitsJobState,
@@ -264,7 +319,9 @@ pub struct JobStatus {
     pub url: Option<OsString>,
 }
 
-#[derive(Clone, Debug)]
+/// Job error report
+#[derive(Clone, Debug, Fail)]
+#[fail(display = "Job error in context {}: {}", context_str, error)]
 pub struct JobError {
     pub context: BitsErrorContext,
     pub context_str: String,

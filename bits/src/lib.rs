@@ -59,9 +59,11 @@ pub enum BitsJobPriority {
 #[repr(u32)]
 #[derive(Copy, Clone, Debug)]
 pub enum BitsProxyUsage {
+    /// Directly access the network.
     NoProxy = BG_JOB_PROXY_USAGE_NO_PROXY,
-    /// Default
+    /// Use Internet Explorer proxy settings. This is the default.
     Preconfig = BG_JOB_PROXY_USAGE_PRECONFIG,
+    /// Attempt to auto-detect the connection's proxy settings.
     AutoDetect = BG_JOB_PROXY_USAGE_AUTODETECT,
 }
 
@@ -114,14 +116,19 @@ pub struct BackgroundCopyManager(ComPtr<IBackgroundCopyManager>);
 
 impl BackgroundCopyManager {
     pub fn connect() -> Result<BackgroundCopyManager> {
-        // Methods do not have to check once we have successfully initialized COM once for the
-        // thread, as BackgroundCopyManager can only be used on one thread.
         INIT_MTA.with(|com| {
             if let Err(e) = com {
                 return Err(e.clone());
             }
             Ok(())
         })?;
+
+        // Assuming no mismatched CoUninitialize calls, methods do not have to check for
+        // successfully initialized COM once the object is constructed: BackgroundCopyManager
+        // is not Send or Sync so it must be used on the thread it was constructed on, which has
+        // now successfully inited MTA for the lifetime of thread local INIT_MTA.
+        // This also holds for any functions using pointers only derived from these methods, like
+        // BitsJob methods.
 
         Ok(BackgroundCopyManager(create_instance_local_server::<
             BcmClass,

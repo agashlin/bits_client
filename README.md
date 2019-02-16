@@ -11,6 +11,19 @@ bits_client lib
 
 `bits_client::new()` creates a `BitsClient` that does all operations within the current process, as the current user.
 
+bits crate
+----------
+
+comedy crate
+------------
+
+filetime_win crate
+------------------
+
+guid_win crate
+--------------
+
+
 test_client example
 -------------------
 

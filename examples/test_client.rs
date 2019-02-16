@@ -138,7 +138,7 @@ fn bits_start(
         }
         Err(e) => {
             let _ = e.clone();
-            bail!("error from server {:?}", e)
+            bail!("error from server {}", e)
         }
     }
 }
@@ -152,7 +152,7 @@ fn bits_monitor(client: Arc<Mutex<BitsClient>>, guid: &OsStr) -> Result {
             monitor_loop(client, monitor_client, guid, 1000)?;
             Ok(())
         }
-        Err(e) => bail!("error from server {:?}", e),
+        Err(e) => bail!("error from server {}", e),
     }
 }
 
@@ -228,7 +228,7 @@ fn bits_set_priority(client: &mut BitsClient, guid: &OsStr, foreground: bool) ->
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.set_job_priority(guid, foreground)? {
         Ok(()) => Ok(()),
-        Err(e) => bail!("error from server {:?}", e),
+        Err(e) => bail!("error from server {}", e),
     }
 }
 
@@ -236,7 +236,7 @@ fn bits_suspend(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.suspend_job(guid)? {
         Ok(()) => Ok(()),
-        Err(e) => bail!("error from server {:?}", e),
+        Err(e) => bail!("error from server {}", e),
     }
 }
 
@@ -244,7 +244,7 @@ fn bits_resume(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.resume_job(guid)? {
         Ok(()) => Ok(()),
-        Err(e) => bail!("error from server {:?}", e),
+        Err(e) => bail!("error from server {}", e),
     }
 }
 
@@ -252,7 +252,7 @@ fn bits_complete(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.complete_job(guid)? {
         Ok(()) => Ok(()),
-        Err(e) => bail!("error from server {:?}", e),
+        Err(e) => bail!("error from server {}", e),
     }
 }
 
@@ -260,6 +260,6 @@ fn bits_cancel(client: &mut BitsClient, guid: &OsStr) -> Result {
     let guid = Guid::from_str(&guid.to_string_lossy())?;
     match client.cancel_job(guid)? {
         Ok(()) => Ok(()),
-        Err(e) => bail!("error from server {:?}", e),
+        Err(e) => bail!("error from server {}", e),
     }
 }

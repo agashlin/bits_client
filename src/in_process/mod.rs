@@ -43,9 +43,8 @@ fn format_error(bcm: &BackgroundCopyManager, error: comedy::Error) -> HResultMes
     }
 }
 
-/// The in-process client uses direct BITS calls via the `bits` crate.
-///
-/// Note that "in-process" does not refer to the BITS COM server, which is out-of-process.
+// The in-process client uses direct BITS calls via the `bits` crate.
+// See the corresponding functions in BitsClient.
 pub struct InProcessClient {
     job_name: ffi::OsString,
     save_path_prefix: path::PathBuf,
@@ -72,9 +71,10 @@ impl InProcessClient {
         monitor_interval_millis: u32,
     ) -> Result<(StartJobSuccess, InProcessMonitor), StartJobFailure> {
         use StartJobFailure::*;
-        // TODO should the job be cleaned up if this fcn can't return success?
 
         let full_path = self.save_path_prefix.join(save_path);
+
+        // Verify that `full_path` is under the directory called `save_path_prefix`.
         {
             let canonical_prefix = self.save_path_prefix.canonicalize().map_err(|e| {
                 ArgumentValidation(format!("save_path_prefix.canonicalize(): {}", e))
@@ -97,6 +97,10 @@ impl InProcessClient {
             }
         }
 
+        // TODO: Should the job be explicitly cleaned up if this fn can't return success?
+        // If the job is dropped before `AddFile` succeeds, I think it automatically gets
+        // deleted from the queue. There is only one fallible call after that (`Resume`).
+
         let bcm = BackgroundCopyManager::connect().map_err(|e| Other(e.to_string()))?;
         let mut job = bcm
             .create_job(&self.job_name)
@@ -109,7 +113,6 @@ impl InProcessClient {
             job.set_minimum_retry_delay(60)?;
             job.set_redirect_report()?;
 
-            // TODO: this will need to be optional eventually
             job.set_priority(BitsJobPriority::Foreground)?;
 
             Ok(())
@@ -136,13 +139,13 @@ impl InProcessClient {
     ) -> Result<InProcessMonitor, MonitorJobFailure> {
         use MonitorJobFailure::*;
 
+        // Stop any preexisting monitor for the same guid.
+        let _ = self.stop_update(guid.clone());
+
         let bcm;
         let (client, control) =
             InProcessMonitor::new(&mut get_job!(bcm, &guid, &self.job_name), interval_millis)
                 .map_err(|e| OtherBITS(format_error(&bcm, e)))?;
-
-        // Stop any preexisting monitor for the same guid
-        let _ = self.stop_update(guid.clone());
 
         self.monitors.insert(guid, control);
 
@@ -269,10 +272,20 @@ impl InProcessClient {
     }
 }
 
+// InProcessMonitor can be used on any thread, and `ControlPair` can be synchronously modified to
+// control a blocked `get_status` call from another thread.
+pub struct InProcessMonitor {
+    vars: Arc<ControlPair>,
+    guid: Guid,
+    last_status_time: Option<Instant>,
+    last_url: Option<ffi::OsString>,
+}
+
 // The `Condvar` is notified when `InProcessMonitorVars` changes.
 type ControlPair = (Condvar, Mutex<InProcessMonitorVars>);
 struct InProcessMonitorControl(Weak<ControlPair>);
 
+// RefUnwindSafe is not impl'd for Condvar but likely should be,
 // see https://github.com/rust-lang/rust/issues/54768
 impl std::panic::RefUnwindSafe for InProcessMonitorControl {}
 
@@ -280,13 +293,6 @@ struct InProcessMonitorVars {
     interval_millis: u32,
     notified: bool,
     shutdown: bool,
-}
-
-pub struct InProcessMonitor {
-    vars: Arc<ControlPair>,
-    guid: Guid,
-    last_status_time: Option<Instant>,
-    last_url: Option<ffi::OsString>,
 }
 
 impl InProcessMonitor {
@@ -329,6 +335,11 @@ impl InProcessMonitor {
             Err(E_FAIL)
         });
 
+        // Note: These callbacks are never explicitly cleared. They will be freed when the
+        // job is deleted from BITS, and they will be cleared if an attempt is made to call them
+        // when they are no longer valid (e.g. after the process exits). This is done mostly for
+        // simplicity and should be safe.
+
         job.register_callbacks(Some(transferred_cb), Some(error_cb), None)?;
 
         let control = InProcessMonitorControl(Arc::downgrade(&vars));
@@ -343,10 +354,6 @@ impl InProcessMonitor {
         Ok((monitor, control))
     }
 
-    fn job(&self) -> Result<BitsJob, Error> {
-        Ok(BackgroundCopyManager::connect()?.get_job_by_guid(&self.guid)?)
-    }
-
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<JobStatus, Error> {
         let timeout = Duration::from_millis(timeout_millis as u64);
 
@@ -357,13 +364,14 @@ impl InProcessMonitor {
             loop {
                 if s.shutdown {
                     // Disconnected, immediately return error.
+                    // Note: Shutdown takes priority over simultaneous notification.
                     return Err(Error::NotConnected);
                 }
 
                 if started.elapsed() > timeout {
-                    // Timed out, disconnect and return timeout error.
-                    // This should not happen normally with the in-process monitor, but the monitor
-                    // interval could potentially be too long (for instance).
+                    // Timed out, exit loop to disconnect and return timeout error.
+                    // This should not normally happen with the in-process monitor, but e.g. the
+                    // monitor interval could be longer than the timeout.
                     break Err(Error::Timeout);
                 }
 
@@ -374,24 +382,41 @@ impl InProcessMonitor {
                     cmp::min(last_status_time + interval, started + timeout)
                 });
 
-                let now = Instant::now();
-
-                if s.notified || wait_until.is_none() || wait_until.unwrap() < now {
-                    // Notified, first status report, or status report due,
-                    // so exit loop to get status below.
+                if s.notified {
+                    // Notified, exit loop to get status.
                     s.notified = false;
                     break Ok(());
                 }
-                let wait_until = wait_until.unwrap();
 
-                // Wait, repeat the checks above.
-                s = self.vars.0.wait_timeout(s, wait_until - now).unwrap().0;
+                if wait_until.is_none() {
+                    // First status report, no waiting, exit loop to get status.
+                    break Ok(());
+                }
+
+                let wait_until = wait_until.unwrap();
+                let wait_start = Instant::now();
+
+                if wait_until <= wait_start {
+                    // Status report due, exit loop to get status.
+                    break Ok(());
+                }
+
+                // Wait.
+                // Do not attempt to recover from poisoned Mutex.
+                s = self
+                    .vars
+                    .0
+                    .wait_timeout(s, wait_until - wait_start)
+                    .unwrap()
+                    .0;
+
+                // Mutex re-acquired, loop.
             }
         }
         .and_then(|()| {
             // No error yet, start getting status now.
             self.last_status_time = Some(Instant::now());
-            self.job()
+            Ok(BackgroundCopyManager::connect()?.get_job_by_guid(&self.guid)?)
         })
         .and_then(|mut job| {
             // Got job successfully, get status.
