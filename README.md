@@ -1,10 +1,9 @@
-update_agent
+bits\_client
 ============
 
-Currently this is only code for interfacing with BITS.
+Interfaces for BITS.
 
-
-bits_client lib
+bits\_client lib
 ---------------
 
 `bits_client` is the primary target and provides `BitsClient`, an API for creating and monitoring BITS jobs.
@@ -14,17 +13,36 @@ bits_client lib
 bits crate
 ----------
 
-comedy crate
-------------
+`bits` is a safe interface to BITS, providing connections to the
+Background Copy Manager, some basic operations on Background Copy Jobs, and
+methods for implementing `IBackgroundCopyCallback`s in Rust.
 
-filetime_win crate
-------------------
-
-guid_win crate
+utility crates
 --------------
 
+- comedy
+  Deals with Windows error handling, handles, COM, and wide strings.
 
-test_client example
+  - `comedy::error` provides macros for calling Windows functions and producing
+    `Result`s with detailed errors (the `comedy::Error` type).
+    and implements `Fail` from `failure`.
+  - `comedy::com` has tools for setting up COM and invoking COM interfaces with
+    access to `Result`s.
+  - `comedy::handle` implements `Drop` to automatically clean up a few kinds of
+    handle.
+  - `comedy::wide` converts between `[u16]`, `OsStr`, and `Path`.
+
+- filetime\_win
+
+  Utilities for converting, serializing, and displaying `FILETIME`
+  and `SYSTEMTIME`.
+
+- guid\_win
+
+  Ditto for `GUID`/`CLSID`.
+
+
+test\_client example
 -------------------
 
 `examples/test_client.rs` shows how to use the API.
