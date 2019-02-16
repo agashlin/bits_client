@@ -16,6 +16,14 @@ use winapi::Interface;
 
 use BitsJob;
 
+/// The type of a notification callback.
+///
+/// The callbacks must be `Fn()` to be called arbitrarily many times, `RefUnwindSafe` to have a
+/// panic unwind safely caught, `Send`, `Sync` and `'static` to run on any thread COM invokes us on
+/// any time.
+///
+/// If the callback returns a non-success `HRESULT`, the notification may pass to other BITS
+/// mechanisms such as `IBackgroundCopyJob2::SetNotifyCmdLine`.
 pub type TransferredCallback =
     (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
 pub type ErrorCallback = (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
@@ -32,13 +40,17 @@ pub struct BackgroundCopyCallback {
 }
 
 impl BackgroundCopyCallback {
+    /// Construct the callback object and register it with a job.
+    ///
+    /// Only one notify interface can be present on a job at once, so this will release BITS'
+    /// ref to any previously registered interface.
     pub fn register(
         job: &mut BitsJob,
         transferred_cb: Option<Box<TransferredCallback>>,
         error_cb: Option<Box<ErrorCallback>>,
         modification_cb: Option<Box<ModificationCallback>>,
     ) -> Result<(), Error> {
-        let mut cb = Box::new(BackgroundCopyCallback {
+        let cb = Box::new(BackgroundCopyCallback {
             interface: IBackgroundCopyCallback { lpVtbl: &VTBL },
             rc: Mutex::new(1),
             transferred_cb,
@@ -46,11 +58,7 @@ impl BackgroundCopyCallback {
             modification_cb,
         });
 
-        assert!(
-            &mut *cb as *mut BackgroundCopyCallback as *mut IUnknownVtbl
-                == &mut cb.interface as *mut IBackgroundCopyCallback as *mut IUnknownVtbl
-        );
-
+        // Leak the callback, it has no owner until we need to drop it later.
         let cb = Box::leak(cb) as *mut BackgroundCopyCallback as *mut IUnknown;
 
         unsafe {
@@ -96,6 +104,7 @@ extern "system" fn addref(this: *mut IUnknown) -> ULONG {
 
 extern "system" fn release(this: *mut IUnknown) -> ULONG {
     unsafe {
+        // Forge a ref based on `this`.
         let this = this as *const BackgroundCopyCallback;
         if let Ok(mut rc) = (*this).rc.lock() {
             *rc -= 1;
@@ -103,7 +112,7 @@ extern "system" fn release(this: *mut IUnknown) -> ULONG {
             if *rc > 0 {
                 return *rc;
             } else {
-                // fall through (to get out of the scope of *this above)
+                // fall through (to get out of the scope of `*this` above)
             }
         } else {
             // HACK
@@ -111,8 +120,8 @@ extern "system" fn release(this: *mut IUnknown) -> ULONG {
             return 1;
         }
 
-        // rc will have been 0 when we get here.
-        // re-Box in order to drop it.
+        // rc will have been 0 for us to get here.
+        // re-Box and immediately drop it.
         let _ = Box::from_raw(this as *mut BackgroundCopyCallback);
 
         return 0;

@@ -1,3 +1,12 @@
+//! A safe interface for BITS
+//!
+//! The primary entry point into BITS is the
+//! [`BackgroundCopyManager`](struct.BackgroundCopyManager.html) struct.
+//!
+//! Functionality is only provided by this crate on an as-needed basis for
+//! [bits_client](../bits_client/index.html), so there are vast swathes of the BITS API
+//! unsupported.
+
 extern crate comedy;
 extern crate filetime_win;
 extern crate guid_win;
@@ -23,7 +32,7 @@ use comedy::{com_call, com_call_cotaskmem_getter, com_call_getter};
 use filetime_win::FileTime;
 use guid_win::Guid;
 use winapi::shared::minwindef::DWORD;
-use winapi::shared::ntdef::{LANGIDFROMLCID, LPWSTR, ULONG};
+use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, LPWSTR, ULONG};
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyFile, IBackgroundCopyJob, IBackgroundCopyManager,
     IEnumBackgroundCopyFiles, IEnumBackgroundCopyJobs, BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND,
@@ -36,7 +45,6 @@ use winapi::um::bits2_5::BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT;
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnls::GetThreadLocale;
-use winapi::RIDL;
 
 pub use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};
 pub use winapi::um::bitsmsg::{BG_S_PARTIAL_COMPLETE, BG_S_UNABLE_TO_DELETE_FILES};
@@ -52,6 +60,7 @@ pub use winapi::shared::winerror::E_FAIL;
 pub enum BitsJobPriority {
     Foreground = BG_JOB_PRIORITY_FOREGROUND,
     High = BG_JOB_PRIORITY_HIGH,
+    /// Default
     Normal = BG_JOB_PRIORITY_NORMAL,
     Low = BG_JOB_PRIORITY_LOW,
 }
@@ -69,53 +78,72 @@ pub enum BitsProxyUsage {
 
 type Result<T> = result::Result<T, Error>;
 
-// temporarily here until https://github.com/retep998/winapi-rs/pull/704 is available
-RIDL! {#[uuid(0x4991d34b, 0x80a1, 0x4291, 0x83, 0xb6, 0x33, 0x28, 0x36, 0x6b, 0x90, 0x97)]
-class BcmClass;}
+#[doc(hidden)]
+mod winapi_temp {
+    use winapi::RIDL;
 
-// temporarily here until https://github.com/retep998/winapi-rs/pull/737 is available
-use winapi::shared::ntdef::{HRESULT, LPCWSTR};
-use winapi::shared::rpcndr::byte;
-use winapi::um::bits2_5::BG_CERT_STORE_LOCATION;
-use winapi::um::unknwnbase::IUnknownVtbl;
-RIDL! {#[uuid(0xf1bd1079, 0x9f01, 0x4bdc, 0x80, 0x36, 0xf0, 0x9b, 0x70, 0x09, 0x50, 0x66)]
-interface IBackgroundCopyJobHttpOptions(IBackgroundCopyJobHttpOptionsVtbl):
-    IUnknown(IUnknownVtbl) {
-    fn SetClientCertificateByID(
-        StoreLocation: BG_CERT_STORE_LOCATION,
-        StoreName: LPCWSTR,
-        pCertHashBlob: *mut byte,
-    ) -> HRESULT,
-    fn SetClientCertificateByName(
-        StoreLocation: BG_CERT_STORE_LOCATION,
-        StoreName: LPCWSTR,
-        SubjectName: LPCWSTR,
-    ) -> HRESULT,
-    fn RemoveClientCertificate() -> HRESULT,
-    fn GetClientCertificate(
-        pStoreLocation: *mut BG_CERT_STORE_LOCATION,
-        pStoreName: *mut LPWSTR,
-        ppCertHashBlob: *mut *mut byte,
-        pSubjectName: *mut LPWSTR,
-    ) -> HRESULT,
-    fn SetCustomHeaders(
-        RequestHeaders: LPCWSTR,
-    ) -> HRESULT,
-    fn GetCustomHeaders(
-        pRequestHeaders: *mut LPWSTR,
-    ) -> HRESULT,
-    fn SetSecurityFlags(
-        Flags: ULONG,
-    ) -> HRESULT,
-    fn GetSecurityFlags(
-        pFlags: *mut ULONG,
-    ) -> HRESULT,
-}}
+    // temporarily here until https://github.com/retep998/winapi-rs/pull/704 is available
+    RIDL! {#[uuid(0x4991d34b, 0x80a1, 0x4291, 0x83, 0xb6, 0x33, 0x28, 0x36, 0x6b, 0x90, 0x97)]
+    class BcmClass;}
+
+    // temporarily here until https://github.com/retep998/winapi-rs/pull/737 is available
+    use winapi::shared::ntdef::{HRESULT, LPCWSTR, LPWSTR, ULONG};
+    use winapi::shared::rpcndr::byte;
+    use winapi::um::bits2_5::BG_CERT_STORE_LOCATION;
+    use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
+    RIDL! {#[uuid(0xf1bd1079, 0x9f01, 0x4bdc, 0x80, 0x36, 0xf0, 0x9b, 0x70, 0x09, 0x50, 0x66)]
+    interface IBackgroundCopyJobHttpOptions(IBackgroundCopyJobHttpOptionsVtbl):
+        IUnknown(IUnknownVtbl) {
+        fn SetClientCertificateByID(
+            StoreLocation: BG_CERT_STORE_LOCATION,
+            StoreName: LPCWSTR,
+            pCertHashBlob: *mut byte,
+        ) -> HRESULT,
+        fn SetClientCertificateByName(
+            StoreLocation: BG_CERT_STORE_LOCATION,
+            StoreName: LPCWSTR,
+            SubjectName: LPCWSTR,
+        ) -> HRESULT,
+        fn RemoveClientCertificate() -> HRESULT,
+        fn GetClientCertificate(
+            pStoreLocation: *mut BG_CERT_STORE_LOCATION,
+            pStoreName: *mut LPWSTR,
+            ppCertHashBlob: *mut *mut byte,
+            pSubjectName: *mut LPWSTR,
+        ) -> HRESULT,
+        fn SetCustomHeaders(
+            RequestHeaders: LPCWSTR,
+        ) -> HRESULT,
+        fn GetCustomHeaders(
+            pRequestHeaders: *mut LPWSTR,
+        ) -> HRESULT,
+        fn SetSecurityFlags(
+            Flags: ULONG,
+        ) -> HRESULT,
+        fn GetSecurityFlags(
+            pFlags: *mut ULONG,
+        ) -> HRESULT,
+    }}
+}
 
 pub struct BackgroundCopyManager(ComPtr<IBackgroundCopyManager>);
 
 impl BackgroundCopyManager {
+    /// Get access to the local BITS service.
+    ///
+    /// # COM Initialization and Threading Model #
+    ///
+    /// This method uses a thread local variable to initialize COM with a multithreaded apartment
+    /// model for this thread, and leaves it this way until the thread local is dropped.
+    /// If the thread was in a single-threaded apartment, `connect()` will fail gracefully.
+    ///
+    /// # Safety #
+    ///
+    /// If there are mismatched `CoUninitialize` calls on this thread which lead to COM shutting
+    /// down before this thread ends, unsafe behavior may result.
     pub fn connect() -> Result<BackgroundCopyManager> {
+        use winapi_temp::BcmClass;
+
         INIT_MTA.with(|com| {
             if let Err(e) = com {
                 return Err(e.clone());
@@ -124,11 +152,11 @@ impl BackgroundCopyManager {
         })?;
 
         // Assuming no mismatched CoUninitialize calls, methods do not have to check for
-        // successfully initialized COM once the object is constructed: BackgroundCopyManager
-        // is not Send or Sync so it must be used on the thread it was constructed on, which has
-        // now successfully inited MTA for the lifetime of thread local INIT_MTA.
+        // successfully initialized COM once the object is constructed: `BackgroundCopyManager`
+        // is not `Send` or `Sync` so it must be used on the thread it was constructed on,
+        // which has now successfully inited MTA for the lifetime of thread local `INIT_MTA`.
         // This also holds for any functions using pointers only derived from these methods, like
-        // BitsJob methods.
+        // the `BitsJob` methods.
 
         Ok(BackgroundCopyManager(create_instance_local_server::<
             BcmClass,
@@ -136,6 +164,7 @@ impl BackgroundCopyManager {
         >()?))
     }
 
+    /// Create a new download job with the given name.
     pub fn create_job(&self, display_name: &OsStr) -> Result<BitsJob> {
         unsafe {
             let mut guid = mem::zeroed();
@@ -151,6 +180,10 @@ impl BackgroundCopyManager {
         }
     }
 
+    /// Cancel all jobs with the given name.
+    ///
+    /// This only attemtps to cancel jobs owned by the current user.
+    /// No errors are returned for jobs that failed to cancel.
     pub fn cancel_jobs_by_name(&self, match_name: &OsStr) -> Result<()> {
         unsafe {
             let jobs = com_call_getter!(|jobs| self.0, IBackgroundCopyManager::EnumJobs(0, jobs))?;
@@ -173,12 +206,16 @@ impl BackgroundCopyManager {
         }
     }
 
+    /// Get the job with the given GUID.
+    ///
     /// Returns Err if the job was not found.
     pub fn get_job_by_guid(&self, guid: &Guid) -> Result<BitsJob> {
         unsafe { com_call_getter!(|job| self.0, IBackgroundCopyManager::GetJob(&guid.0, job)) }
             .map(|job| BitsJob(job))
     }
 
+    /// Try to find a job with a given GUID.
+    ///
     /// Returns Ok(None) if the job was not found but there was no other error.
     pub fn find_job_by_guid(&self, guid: &Guid) -> Result<Option<BitsJob>> {
         Ok(self
@@ -187,7 +224,10 @@ impl BackgroundCopyManager {
             .allow_hresult(BG_E_NOT_FOUND as i32, None)?)
     }
 
-    /// Returns Ok(None) if the job was not found, or if it had the wrong name.
+    /// Try to find a job with a given GUID and name.
+    ///
+    /// Returns Ok(None) if the job was not found, or if it had the wrong name, as long as there
+    /// was no other error.
     pub fn find_job_by_guid_and_name(
         &self,
         guid: &Guid,
@@ -204,6 +244,10 @@ impl BackgroundCopyManager {
         }
     }
 
+    /// Translate a BITS `HRESULT` to a textual description.
+    ///
+    /// This uses the current thread's locale to look up the message associated with a BITS
+    /// error. It should only be used for `HRESULT`s returned from BITS COM interfaces.
     pub fn get_error_description(&self, hr: HRESULT) -> Result<String> {
         unsafe {
             let language_id = LANGIDFROMLCID(GetThreadLocale()) as DWORD;
@@ -232,6 +276,7 @@ fn job_name_eq(job: &ComPtr<IBackgroundCopyJob>, match_name: &OsStr) -> Result<b
 pub struct BitsJob(ComPtr<IBackgroundCopyJob>);
 
 impl BitsJob {
+    /// Get the job's GUID.
     pub fn guid(&self) -> Result<Guid> {
         // TODO: cache on create or retrieved by GUID?
         unsafe {
@@ -241,6 +286,7 @@ impl BitsJob {
         }
     }
 
+    /// Add a file to the job.
     pub fn add_file(&mut self, remote_url: &OsStr, local_file: &OsStr) -> Result<()> {
         unsafe {
             com_call!(
@@ -254,6 +300,9 @@ impl BitsJob {
         Ok(())
     }
 
+    /// Get the first file in the job.
+    ///
+    /// This is provided for collecting the redirected remote name of single file jobs.
     pub fn get_first_file(&mut self) -> Result<BitsFile> {
         unsafe {
             let files = com_call_getter!(|e| self.0, IBackgroundCopyJob::EnumFiles(e))?;
@@ -265,6 +314,9 @@ impl BitsJob {
         }
     }
 
+    /// Set the job's description string.
+    ///
+    /// This is different from the display name set when creating the job.
     pub fn set_description(&mut self, description: &OsStr) -> Result<()> {
         unsafe {
             com_call!(
@@ -275,6 +327,9 @@ impl BitsJob {
         Ok(())
     }
 
+    /// Change the job's proxy usage setting.
+    ///
+    /// The default is `BitsProxyUsage::Preconfig`.
     pub fn set_proxy_usage(&mut self, usage: BitsProxyUsage) -> Result<()> {
         use BitsProxyUsage::*;
 
@@ -295,6 +350,9 @@ impl BitsJob {
         }
     }
 
+    /// Change the job's priority.
+    ///
+    /// The default is `BitsJobPriority::Normal`.
     pub fn set_priority(&mut self, priority: BitsJobPriority) -> Result<()> {
         unsafe {
             com_call!(
@@ -310,8 +368,17 @@ impl BitsJob {
         Ok(())
     }
 
-    /// First available in Windows Vista
+    /// Enable HTTP redirect reporting.
+    ///
+    /// The default setting is to allow HTTP redirects, but to not report them in any way. With
+    /// this setting enabled, the remote name of a file will be updated to reflect the redirect.
+    ///
+    /// # Compatibility #
+    ///
+    /// First available in Windows Vista.
     pub fn set_redirect_report(&mut self) -> Result<()> {
+        use winapi_temp::IBackgroundCopyJobHttpOptions;
+
         unsafe {
             com_call!(
                 comedy::com::cast(&self.0)?,
@@ -324,6 +391,7 @@ impl BitsJob {
         Ok(())
     }
 
+    /// Resume the job. This must be done at least once to initially enqueue the job.
     pub fn resume(&mut self) -> Result<()> {
         unsafe { com_call!(self.0, IBackgroundCopyJob::Resume()) }?;
         Ok(())
@@ -334,17 +402,24 @@ impl BitsJob {
         Ok(())
     }
 
+    /// Complete the job, moving the local files to their final names.
+    ///
     /// Has two interesting success `HRESULT`s: `BG_S_PARTIAL_COMPLETE` and
     /// `BG_S_UNABLE_TO_DELETE_FILES`.
     pub fn complete(&mut self) -> Result<HRESULT> {
         unsafe { com_call!(self.0, IBackgroundCopyJob::Complete()) }
     }
 
+    /// Cancel the job, deleting any temporary files.
+    ///
     /// Has an interesting success `HRESULT`: `BG_S_UNABLE_TO_DELETE_FILES`.
     pub fn cancel(&mut self) -> Result<HRESULT> {
         unsafe { com_call!(self.0, IBackgroundCopyJob::Cancel()) }
     }
 
+    /// Set the notification callbacks to use with this job.
+    ///
+    /// This will replace any previously set callbacks.
     pub fn register_callbacks(
         &mut self,
         transferred_cb: Option<Box<callback::TransferredCallback>>,
@@ -385,6 +460,7 @@ impl BitsJob {
         }
     }
 
+    /// Collect the current status of the job, including errors.
     pub fn get_status(&self) -> Result<BitsJobStatus> {
         let mut state = 0;
         let mut progress = unsafe { mem::zeroed() };
@@ -471,7 +547,15 @@ impl BitsJob {
 
 pub struct BitsFile(ComPtr<IBackgroundCopyFile>);
 
+/// A single file in a BITS job.
+///
+/// This is provided for collecting the redirected remote name.
 impl BitsFile {
+    /// Get the remote name from which the file is being downloaded.
+    ///
+    /// If [`BitsJob::set_redirect_report()`](struct.BitsJob.html#method.set_redirect_report)
+    /// hasn't been called on the job, this won't be
+    /// updated as HTTP redirects are processed.
     pub fn get_remote_name(&self) -> Result<OsString> {
         unsafe {
             Ok(OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(

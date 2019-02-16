@@ -1,3 +1,8 @@
+//! Data types for reporting a job's status
+//!
+//! Includes some Rust enums for values we get as raw `DWORD`s from the BITS API, with
+//! `From<u32>` impls.
+
 use filetime_win::FileTime;
 use winapi::shared::winerror::HRESULT;
 use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};

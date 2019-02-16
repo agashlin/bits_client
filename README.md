@@ -24,13 +24,14 @@ utility crates
   Deals with Windows error handling, handles, COM, and wide strings.
 
   - `comedy::error` provides macros for calling Windows functions and producing
-    `Result`s with detailed errors (the `comedy::Error` type).
+    `Result`s with detailed errors (the `comedy::Error` type)
     and implements `Fail` from `failure`.
   - `comedy::com` has tools for setting up COM and invoking COM interfaces with
     access to `Result`s.
   - `comedy::handle` implements `Drop` to automatically clean up a few kinds of
     handle.
-  - `comedy::wide` converts between `[u16]`, `OsStr`, and `Path`.
+  - `comedy::wide` converts between `[u16]`, `OsStr`, `Path`, and raw
+    pointers to (possibly null-terminated) wide character arrays.
 
 - filetime\_win
 
