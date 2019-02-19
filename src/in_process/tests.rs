@@ -314,7 +314,7 @@ test! {
         let interval = 10 * 1000;
         let timeout = 1000;
 
-        let (StartJobSuccess { guid }, mut monitor) =
+        let (_, mut monitor) =
             client.start_job(format_server_url(port, name).into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
 
         // Start the timer now, the initial job creation may be delayed by BITS service startup.

@@ -24,7 +24,7 @@ pub struct HResultMessage {
 
 impl fmt::Display for HResultMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        write!(f, "{}", self.message)
+        self.message.fmt(f)
     }
 }
 
@@ -306,8 +306,8 @@ pub enum CancelJobFailure {
 
 /// Job status report
 ///
-/// This has more useful enums than `bits::status::BitsJobStatus`, and includes a URL which updates
-/// with redirect.
+/// This includes a URL which updates with redirect but is otherwise the same as
+/// `bits::status::BitsJobStatus`.
 #[derive(Clone, Debug)]
 pub struct JobStatus {
     pub state: BitsJobState,

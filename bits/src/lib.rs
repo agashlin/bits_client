@@ -475,7 +475,7 @@ impl BitsJob {
         }
 
         Ok(BitsJobStatus {
-            state,
+            state: BitsJobState::from(state),
             progress: BitsJobProgress {
                 total_bytes: if progress.BytesTotal == BG_SIZE_UNKNOWN {
                     None
@@ -521,7 +521,7 @@ impl BitsJob {
             let language_id = LANGIDFROMLCID(GetThreadLocale()) as DWORD;
 
             Ok(BitsJobError {
-                context,
+                context: BitsErrorContext::from(context),
                 context_str: OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
                     |desc| error_obj,
                     IBackgroundCopyError::GetErrorContextDescription(language_id, desc)

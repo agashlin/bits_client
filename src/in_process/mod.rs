@@ -10,8 +10,7 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use bits::{
-    BackgroundCopyManager, BitsErrorContext, BitsJob, BitsJobPriority, BitsJobState,
-    BitsProxyUsage, BG_S_PARTIAL_COMPLETE, E_FAIL,
+    BackgroundCopyManager, BitsJob, BitsJobPriority, BitsProxyUsage, BG_S_PARTIAL_COMPLETE, E_FAIL,
 };
 use guid_win::Guid;
 
@@ -424,11 +423,11 @@ impl InProcessMonitor {
             let url = job.get_first_file()?.get_remote_name()?;
 
             Ok(JobStatus {
-                state: BitsJobState::from(status.state),
+                state: status.state,
                 progress: status.progress,
                 error_count: status.error_count,
                 error: status.error.map(|e| JobError {
-                    context: BitsErrorContext::from(e.context),
+                    context: e.context,
                     context_str: e.context_str,
                     error: HResultMessage {
                         hr: e.error,

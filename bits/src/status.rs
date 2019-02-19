@@ -1,7 +1,4 @@
 //! Data types for reporting a job's status
-//!
-//! Includes some Rust enums for values we get as raw `DWORD`s from the BITS API, with
-//! `From<u32>` impls.
 
 use filetime_win::FileTime;
 use winapi::shared::winerror::HRESULT;
@@ -13,7 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobStatus {
-    pub state: BG_JOB_STATE,
+    pub state: BitsJobState,
     pub progress: BitsJobProgress,
     pub error_count: u32,
     pub error: Option<BitsJobError>,
@@ -23,7 +20,7 @@ pub struct BitsJobStatus {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobError {
-    pub context: BG_ERROR_CONTEXT,
+    pub context: BitsErrorContext,
     pub context_str: String,
     pub error: HRESULT,
     pub error_str: String,
