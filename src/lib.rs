@@ -2,10 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! An interface for managing and monitoring BITS jobs. BITS is a Windows service for file
-//! downloads independent from an application, usually via HTTP/HTTPS.
+//! An interface for managing and monitoring BITS jobs. BITS is a Windows service for performing
+//! downloads in the background, independent from an application, usually via HTTP/HTTPS.
 //!
-//! [`BitsClient`](enum.BitsClient.html) is the main interface.
+//! [`BitsClient`](enum.BitsClient.html) is the main interface, used to issue commands.
+//!
+//! [`BitsMonitorClient`](enum.BitsMonitorClient.html) is a blocking monitor that can get periodic
+//! updates on the status of a job.
 //!
 //! Microsoft's documentation for BITS can be found at
 //! <https://docs.microsoft.com/en-us/windows/desktop/Bits/background-intelligent-transfer-service-portal>
@@ -54,7 +57,7 @@ impl convert::From<ComedyError> for PipeError {
 
 pub use PipeError as Error;
 
-/// A client object for interacting with BITS.
+/// A client for interacting with BITS.
 ///
 /// Methods on `BitsClient` return a `Result<Result<_, XyzFailure>, Error>`. The outer `Result`
 /// is `Err` if there was a communication error in sending the associated command or receiving
@@ -209,7 +212,11 @@ impl BitsClient {
     }
 }
 
-/// A `BitsMonitorClient` is the client side of a monitor for a BITS job.
+/// The client side of a monitor for a BITS job.
+///
+/// It is intended to be used by calling `get_status` in a loop to receive notifications about
+/// the status of a job. Because `get_status` blocks, it is recommended to run this loop on its
+/// own thread.
 pub enum BitsMonitorClient {
     InProcess(in_process::InProcessMonitor),
 }
@@ -217,8 +224,10 @@ pub enum BitsMonitorClient {
 impl BitsMonitorClient {
     /// `get_status` will return a result approximately every `monitor_interval_millis`
     /// milliseconds, but in case a result isn't available within `timeout_millis` milliseconds
-    /// this will return `Err(Error::Timeout)`. Any `Err` returned indicates that the monitor
-    /// has been stopped, the `BitsMonitorClient` should then be discarded.
+    /// this will return `Err(Error::Timeout)`. Any `Err` returned, including timeout, indicates
+    /// that the monitor has been stopped; the `BitsMonitorClient` should then be discarded.
+    ///
+    /// The first time `get_status` is called it will return a status without any delay.
     ///
     /// If there is an error or the transfer completes, a result may be available sooner than
     /// the monitor interval.
