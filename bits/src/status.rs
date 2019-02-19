@@ -29,7 +29,7 @@ pub struct BitsJobError {
     pub error_str: String,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub enum BitsErrorContext {
     None,
@@ -62,7 +62,7 @@ impl From<BG_ERROR_CONTEXT> for BitsErrorContext {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub enum BitsJobState {
     Queued,

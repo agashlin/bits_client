@@ -2,6 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+// These are full integration tests that use the BITS service.
+
+// TODO
+// It may make sense to restrict how many tests can run at once. BITS is only supposed to support
+// four simultaneous notifications per user, it is not impossible that this test suite could
+// exceed that.
+
 #![cfg(test)]
 extern crate bits;
 extern crate lazy_static;
@@ -214,7 +221,7 @@ test! {
 
         let start = Instant::now();
 
-        // first immediate report
+        // First immediate report
         monitor.get_status(timeout).expect("should initially be ok");
 
         // ~250ms the cancel should cause an immediate disconnect (otherwise we wouldn't get
@@ -292,5 +299,80 @@ test! {
         if let Err(e) = result {
             panic::resume_unwind(e);
         }
+    }
+}
+
+test! {
+    fn async_notification(name: &str, tmp_dir: &TempDir) {
+        let port = mock_http_server(name, HttpServerResponses {
+            body: name.to_owned().into_boxed_str().into_boxed_bytes(),
+            delay: 250,
+        });
+
+        let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
+
+        let interval = 10 * 1000;
+        let timeout = 1000;
+
+        let (StartJobSuccess { guid }, mut monitor) =
+            client.start_job(format_server_url(port, name).into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+
+        // Start the timer now, the initial job creation may be delayed by BITS service startup.
+        let start = Instant::now();
+
+        // First immediate report
+        monitor.get_status(timeout).expect("should initially be ok");
+        assert!(start.elapsed() < Duration::from_millis(100));
+
+        // Transferred notification should come when the job completes in ~250 ms, otherwise we
+        // will be stuck until timeout.
+        let status = monitor.get_status(timeout).expect("should get status update");
+        assert!(start.elapsed() < Duration::from_millis(1000));
+        assert_eq!(status.state, BitsJobState::Transferred);
+
+        monitor.get_status(timeout).expect_err("should be disconnected");
+
+        close_mock_http_server(port);
+
+        // job will be cancelled by macro
+    }
+}
+
+test! {
+    fn change_interval(name: &str, tmp_dir: &TempDir) {
+        let port = mock_http_server(name, HttpServerResponses {
+            body: name.to_owned().into_boxed_str().into_boxed_bytes(),
+            delay: 1000,
+        });
+
+        let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
+
+        let interval = 10 * 1000;
+        let timeout = 1000;
+
+        let (StartJobSuccess { guid }, mut monitor) =
+            client.start_job(format_server_url(port, name).into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+
+        let start = Instant::now();
+
+        // reduce monitor interval in ~250ms to 500ms
+        let _join = thread::Builder::new()
+            .spawn(move || {
+                thread::sleep(Duration::from_millis(250));
+                client.set_update_interval(guid, 500).unwrap();
+            });
+
+        // First immediate report
+        monitor.get_status(timeout).expect("should initially be ok");
+        assert!(start.elapsed() < Duration::from_millis(100));
+
+        // Next report should be rescheduled to 500ms by the spawned thread
+        monitor.get_status(timeout).expect("expected second status");
+        assert!(start.elapsed() < Duration::from_millis(750));
+        assert!(start.elapsed() > Duration::from_millis(400));
+
+        close_mock_http_server(port);
+
+        // job will be cancelled by macro
     }
 }

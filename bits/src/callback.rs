@@ -88,52 +88,47 @@ extern "system" fn query_interface(
     }
 }
 
-extern "system" fn addref(this: *mut IUnknown) -> ULONG {
+extern "system" fn addref(raw_this: *mut IUnknown) -> ULONG {
     unsafe {
-        let this = this as *const BackgroundCopyCallback;
-        if let Ok(mut rc) = (*this).rc.lock() {
-            *rc += 1;
-            *rc
-        } else {
-            // HACK
-            // Can't reliably panic, what to do?
-            1
-        }
+        // Forge a ref based on `raw_this`.
+        let this = raw_this as *const BackgroundCopyCallback;
+
+        // Justification for unwrap(): `rc` is only locked here and in `release()` below,
+        // these can't panic while the `MutexGuard` is in scope, so the `Mutex` will never be
+        // poisoned, so `lock()` will never return an error.
+        let mut rc = (*this).rc.lock().unwrap();
+        *rc += 1;
+        *rc
     }
 }
 
-extern "system" fn release(this: *mut IUnknown) -> ULONG {
+extern "system" fn release(raw_this: *mut IUnknown) -> ULONG {
     unsafe {
-        // Forge a ref based on `this`.
-        let this = this as *const BackgroundCopyCallback;
-        if let Ok(mut rc) = (*this).rc.lock() {
+        {
+            let this = raw_this as *const BackgroundCopyCallback;
+
+            let mut rc = (*this).rc.lock().unwrap();
             *rc -= 1;
 
             if *rc > 0 {
                 return *rc;
-            } else {
-                // fall through (to get out of the scope of `*this` above)
             }
-        } else {
-            // HACK
-            // Can't reliably panic, what to do?
-            return 1;
-        }
+        };
 
-        // rc will have been 0 for us to get here.
-        // re-Box and immediately drop it.
-        let _ = Box::from_raw(this as *mut BackgroundCopyCallback);
+        // rc will have been 0 for us to get here, and we're out of scope of the uses above, so
+        // there should be no references besides `raw_this`. re-Box and to drop immediately.
+        let _ = Box::from_raw(raw_this as *mut BackgroundCopyCallback);
 
         return 0;
     }
 }
 
 extern "system" fn transferred_stub(
-    this: *mut IBackgroundCopyCallback,
+    raw_this: *mut IBackgroundCopyCallback,
     _job: *mut IBackgroundCopyJob,
 ) -> HRESULT {
     unsafe {
-        let this = this as *const BackgroundCopyCallback;
+        let this = raw_this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).transferred_cb {
             match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
@@ -147,12 +142,12 @@ extern "system" fn transferred_stub(
 }
 
 extern "system" fn error_stub(
-    this: *mut IBackgroundCopyCallback,
+    raw_this: *mut IBackgroundCopyCallback,
     _job: *mut IBackgroundCopyJob,
     _error: *mut IBackgroundCopyError,
 ) -> HRESULT {
     unsafe {
-        let this = this as *const BackgroundCopyCallback;
+        let this = raw_this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).error_cb {
             match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
@@ -166,12 +161,12 @@ extern "system" fn error_stub(
 }
 
 extern "system" fn modification_stub(
-    this: *mut IBackgroundCopyCallback,
+    raw_this: *mut IBackgroundCopyCallback,
     _job: *mut IBackgroundCopyJob,
     _reserved: DWORD,
 ) -> HRESULT {
     unsafe {
-        let this = this as *const BackgroundCopyCallback;
+        let this = raw_this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).modification_cb {
             match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
