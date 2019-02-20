@@ -86,7 +86,7 @@ pub struct SystemTimeUTC(
 impl FileTime {
     /// Convert to raw integer
     ///
-    /// `FILETIME` is 100-nanoseconds intervals since January 1, 1601 (UTC), but if the high
+    /// `FILETIME` is 100-nanosecond intervals since January 1, 1601 (UTC), but if the high
     /// bit is 1 there may be a different interpretation.
     pub fn to_u64(self) -> u64 {
         unsafe {
