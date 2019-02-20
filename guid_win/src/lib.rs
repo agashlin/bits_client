@@ -22,7 +22,6 @@ extern crate winapi;
 use std::ffi::OsString;
 use std::fmt::{Debug, Display, Error, Formatter, Result};
 use std::hash::{Hash, Hasher};
-use std::iter;
 use std::mem;
 use std::result;
 use std::str::FromStr;
@@ -119,18 +118,40 @@ impl FromStr for Guid {
     fn from_str(s: &str) -> result::Result<Self, Self::Err> {
         let mut guid = unsafe { mem::uninitialized() };
 
-        let s = if s.chars().next() == Some('{') {
+        let s = if s.starts_with('{') {
             s.to_wide_null()
         } else {
-            iter::once(b'{' as u16)
-                .chain(s.to_wide().into_iter())
-                .chain(Some(b'}' as u16))
-                .chain(Some(0))
-                .collect()
+            format!("{{{}}}", s).to_wide_null()
         };
 
         unsafe { check_succeeded!(CLSIDFromString(s.as_ptr(), &mut guid)) }?;
 
         Ok(Guid(guid))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Guid;
+    use std::str::FromStr;
+
+    #[test]
+    fn without_braces() {
+        let uuid = "F1BD1079-9F01-4BDC-8036-F09B70095066";
+        let guid = Guid::from_str(uuid).unwrap();
+        assert_eq!(format!("{}", guid), format!("{{{}}}", uuid));
+    }
+
+    #[test]
+    fn with_braces() {
+        let uuid = "{F1BD1079-9F01-4BDC-8036-F09B70095066}";
+        let guid = Guid::from_str(uuid).unwrap();
+        assert_eq!(format!("{}", guid), uuid);
+    }
+
+    #[test]
+    fn format_error() {
+        let uuid = "foo";
+        Guid::from_str(uuid).unwrap_err();
     }
 }
