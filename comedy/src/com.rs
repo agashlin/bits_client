@@ -3,7 +3,11 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.
 // All files in the project carrying such notice may not be copied, modified, or distributed
 // except according to those terms.
-//
+
+//! Utilities and wrappers for Microsoft COM interfaces in Windows.
+//!
+//! This works with the `Class` and `Interface` traits from the `winapi` crate.
+
 use std::marker::PhantomData;
 use std::mem::forget;
 use std::ops::Deref;
@@ -27,8 +31,9 @@ use check_succeeded;
 use error::{succeeded_or_err, Error, ErrorCode::*, Result, ResultExt};
 use handle::CoTaskMem;
 
-// ComPtr to wrap COM interfaces sanely
-// Originally from wio-rs b895086
+/// ComPtr to wrap COM interfaces sanely
+///
+/// Originally from [wio-rs](https://github.com/retep998/wio-rs) b895086
 #[repr(transparent)]
 pub struct ComPtr<T>(NonNull<T>)
 where
@@ -119,6 +124,11 @@ where
     }
 }
 
+/// A scope for automatic COM initialization and deinitialization.
+///
+/// Functions that need COM initialized can take a `&ComApartmentScope` argument and be sure that
+/// it is so. It's recommended to use a thread local for this through the
+/// [`INIT_MTA`](constant.INIT_MTA.html) or [`INIT_STA`](constant.INIT_STA.html) statics.
 #[derive(Debug, Default)]
 pub struct ComApartmentScope {
     /// PhantomData used in lieu of unstable impl !Send + !Sync.
@@ -136,7 +146,7 @@ impl ComApartmentScope {
         Ok(Default::default())
     }
 
-    /// This thread should join the process's multi thread apartment
+    /// This thread should join the process's multithreaded apartment
     pub fn init_mta() -> Result<Self> {
         unsafe { check_succeeded!(CoInitializeEx(ptr::null_mut(), COINIT_MULTITHREADED)) }?;
 
@@ -155,6 +165,8 @@ impl Drop for ComApartmentScope {
 thread_local! {
     // TODO these examples should probably be in convenience functions.
     /// A single thread apartment scope for the duration of the current thread.
+    ///
+    /// # Example
     /// ```
     /// use comedy::com::{ComApartmentScope, INIT_STA};
     ///
@@ -172,7 +184,9 @@ thread_local! {
     /// ```
     pub static INIT_STA: Result<ComApartmentScope> = ComApartmentScope::init_sta();
 
-    /// A multithread apartment scope for the duration of the current thread.
+    /// A multithreaded apartment scope for the duration of the current thread.
+    ///
+    /// # Example
     /// ```
     /// use comedy::com::{ComApartmentScope, INIT_MTA};
     ///
@@ -191,6 +205,11 @@ thread_local! {
     pub static INIT_MTA: Result<ComApartmentScope> = ComApartmentScope::init_mta();
 }
 
+/// Create an instance of a COM class.
+///
+/// This is mostly just a call to `CoCreateInstance` with some error handling.
+/// The CLSID of the class and the IID of the interface come from the winapi `RIDL` macro, which
+/// defines `Class` and `Interface` implementations.
 pub fn create_instance<C, I>(ctx: CLSCTX) -> Result<ComPtr<I>>
 where
     C: Class,
@@ -206,9 +225,9 @@ where
         )
     })
     .function("CoCreateInstance")
-    .file_line(file!(), line!())
 }
 
+/// Create an instance of a COM class in the current process (`CLSCTX_LOCAL_SERVER`).
 pub fn create_instance_local_server<C, I>() -> Result<ComPtr<I>>
 where
     C: Class,
@@ -217,6 +236,8 @@ where
     create_instance::<C, I>(CLSCTX_LOCAL_SERVER)
 }
 
+/// Create an instance of a COM class in a separate process space on the same machine
+/// (`CLSCTX_INPROC_SERVER`).
 pub fn create_instance_inproc_server<C, I>() -> Result<ComPtr<I>>
 where
     C: Class,
@@ -237,7 +258,22 @@ where
     })
 }
 
-/// Call a method.
+/// Call a COM method, returning a `Result`.
+///
+/// An error is returned if the call fails. The error is augmented with the name of the interface
+/// and method, and the file name and line number of the macro usage.
+///
+/// `QueryInterface` is not used, the receiving interface must already be the given type.
+///
+/// # Example
+///
+/// ```ignore
+/// fn cancel_job(job: &ComPtr<IBackgroundCopyJob>) -> Result<()> {
+///     unsafe {
+///         com_call!(job, IBackgroundCopyJob::Cancel())
+///     }
+/// }
+/// ```
 #[macro_export]
 macro_rules! com_call {
     ($obj:expr, $interface:ident :: $method:ident ( $($arg:expr),* )) => {
@@ -248,12 +284,15 @@ macro_rules! com_call {
           .file_line(file!(), line!())
     };
 
-    // support for trailing comma in argument list
+    // support for trailing comma in method argument list
     ($obj:expr, $interface:ident :: $method:ident ( $($arg:expr),+ , )) => {
         $crate::com_call!($obj, $interface::$method($($arg),+))
     };
 }
 
+/// Get an interface pointer that is returned through an output parameter.
+///
+/// If the call returns a failure `HRESULT`, or the interface pointer is null, return an error.
 pub fn get<I, F>(getter: F) -> Result<ComPtr<I>>
 where
     I: Interface,
@@ -275,7 +314,24 @@ where
     }
 }
 
-/// Call a method, getting an interface pointer that is returned through an output parameter.
+/// Call a COM method, create a [`ComPtr`](com/struct.ComPtr.html) from an output parameter.
+///
+/// An error is returned if the call fails or if the interface pointer is null. The error is
+/// augmented with the name of the interface and method, and the file name and line number of the
+/// macro usage.
+///
+/// # Example
+///
+/// ```ignore
+/// fn create_job(bcm: &ComPtr<IBackgroundCopyManager>) -> Result<ComPtr<IBackgroundCopyJob>> {
+///     unsafe {
+///         com_call_getter!(
+///             |job| bcm,
+///             IBackgroundCopyManager::CreateJob(x, y, z, job)
+///         )
+///     }
+/// }
+/// ```
 #[macro_export]
 macro_rules! com_call_getter {
     (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),* )) => {{
@@ -286,12 +342,15 @@ macro_rules! com_call_getter {
           .file_line(file!(), line!())
     }};
 
-    // support for trailing comma in argument list
+    // support for trailing comma in method argument list
     (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),+ , )) => {
         $crate::com_call_getter!(|$outparam| $obj, $interface::$method($($arg),+))
     };
 }
 
+/// Get a task memory pointer that is returned through an output parameter.
+///
+/// If the call returns a failure `HRESULT`, or the pointer is null, return an error.
 pub fn get_cotaskmem<F, T>(getter: F) -> Result<CoTaskMem>
 where
     F: FnOnce(*mut *mut T) -> HRESULT,
@@ -312,10 +371,28 @@ where
     }
 }
 
-/// Call a method, getting a memory pointer that is returned through a `CoTaskMem` output
+/// Call a COM method, create a [`CoTaskMem`](handle/struct.CoTaskMem.html) from an output
 /// parameter.
+///
+/// An error is returned if the call fails or if the pointer is null. The error is augmented with
+/// the name of the interface and method, and the file name and line number of the macro usage.
+///
+/// # Example
+///
+/// ```ignore
+/// fn get_error_description(bcm: &ComPtr<IBackgroundCopyManager>, hr: HRESULT)
+///     -> Result<CoTaskMem>
+/// {
+///     unsafe {
+///         com_call_taskmem_getter!(
+///             |desc| bcm,
+///             IBackgroundCopyManager::GetErrorDescription(hr, language_id, desc)
+///         )
+///     }
+/// }
+/// ```
 #[macro_export]
-macro_rules! com_call_cotaskmem_getter {
+macro_rules! com_call_taskmem_getter {
     (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),* )) => {{
         $crate::com::get_cotaskmem(|$outparam| {
             $obj.$method($($arg),*)
@@ -323,8 +400,8 @@ macro_rules! com_call_cotaskmem_getter {
           .file_line(file!(), line!())
     }};
 
-    // support for trailing comma in argument list
+    // support for trailing comma in method argument list
     (| $outparam:ident | $obj:expr, $interface:ident :: $method:ident ( $($arg:expr),+ , )) => {
-        $crate::com_call_cotaskmem_getter!(|$outparam| $obj, $interface::$method($($arg),+))
+        $crate::com_call_taskmem_getter!(|$outparam| $obj, $interface::$method($($arg),+))
     };
 }

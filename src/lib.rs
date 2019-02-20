@@ -2,13 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! An interface for managing and monitoring BITS jobs. BITS is a Windows service for performing
-//! downloads in the background, independent from an application, usually via HTTP/HTTPS.
+//! An interface for managing and monitoring BITS jobs.
+//!
+//! BITS is a Windows service for performing downloads in the background, independent from an
+//! application, usually via HTTP/HTTPS.
 //!
 //! [`BitsClient`](enum.BitsClient.html) is the main interface, used to issue commands.
 //!
-//! [`BitsMonitorClient`](enum.BitsMonitorClient.html) is a blocking monitor that can get periodic
-//! updates on the status of a job.
+//! [`BitsMonitorClient`](enum.BitsMonitorClient.html) delivers periodic status reports about a
+//! job.
 //!
 //! Microsoft's documentation for BITS can be found at
 //! <https://docs.microsoft.com/en-us/windows/desktop/Bits/background-intelligent-transfer-service-portal>

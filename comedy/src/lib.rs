@@ -4,6 +4,8 @@
 // All files in the project carrying such notice may not be copied, modified, or distributed
 // except according to those terms.
 
+//! Utilities for Windows COM, error handling, handles, and strings.
+
 extern crate failure;
 extern crate failure_derive;
 extern crate winapi;

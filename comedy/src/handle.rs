@@ -4,6 +4,8 @@
 // All files in the project carrying such notice may not be copied, modified, or distributed
 // except according to those terms.
 
+//! Wrapping and automatically closing handles.
+
 use std::ops::Deref;
 
 use winapi::shared::minwindef::{DWORD, HLOCAL, LPVOID};
@@ -14,6 +16,7 @@ use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
 use winapi::um::winbase::LocalFree;
 use winapi::um::winnt::HANDLE;
 
+/// Check and automatically close a Windows `HANDLE`.
 #[repr(transparent)]
 #[derive(Debug)]
 pub struct Handle(HANDLE);
@@ -67,6 +70,21 @@ impl Drop for Handle {
     }
 }
 
+/// Call a function that returns a `HANDLE`, but `INVALID_HANDLE_VALUE` on failure, wrap result.
+///
+/// The handle is wrapped in a [`Handle`](handle/struct.Handle.html) which will automatically call
+/// `CloseHandle()` on it. If the function fails, the error is retrieved via `GetLastError()` and
+/// augmented with the name of the function and the file and line number of the macro usage.
+///
+/// # Example
+///
+/// ```ignore
+/// unsafe {
+///     let handle = call_valid_handle_getter!(
+///         FindFirstFileA(std::ptr::null_mut(), std::ptr::null_mut())
+///     )?;
+/// }
+/// ```
 #[macro_export]
 macro_rules! call_valid_handle_getter {
     ($f:ident ( $($arg:expr),* )) => {
@@ -87,6 +105,25 @@ macro_rules! call_valid_handle_getter {
     };
 }
 
+/// Call a function that returns a `HANDLE`, but `NULL` on failure, wrap result.
+///
+/// The handle is wrapped in a [`Handle`](handle/struct.Handle.html) which will automatically call
+/// `CloseHandle()` on it. If the function fails, the error is retrieved via `GetLastError()` and
+/// augmented with the name of the function and the file and line number of the macro usage.
+///
+/// # Example
+///
+/// ```ignore
+/// unsafe {
+///     let handle = call_nonnull_handle_getter!(
+///         CreateEventA(
+///             std::ptr::null_mut(),
+///             0, 0,
+///             std::ptr::null_mut(),
+///         )
+///     )?;
+/// }
+/// ```
 #[macro_export]
 macro_rules! call_nonnull_handle_getter {
     ($f:ident ( $($arg:expr),* )) => {
@@ -107,6 +144,7 @@ macro_rules! call_nonnull_handle_getter {
     };
 }
 
+/// Check and automatically free a Windows `HLOCAL`.
 #[repr(transparent)]
 #[derive(Debug)]
 pub struct HLocal(HLOCAL);
@@ -144,6 +182,7 @@ impl Drop for HLocal {
     }
 }
 
+/// Check and automatically free a Windows COM task memory pointer.
 #[repr(transparent)]
 #[derive(Debug)]
 pub struct CoTaskMem(LPVOID);

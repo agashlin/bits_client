@@ -1,3 +1,17 @@
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.
+// All files in the project carrying such notice may not be copied, modified, or distributed
+// except according to those terms.
+
+//! Windows `GUID`/`CLSID` string and binary serialization
+//!
+//! [`Guid`](struct.Guid.html) transparently wraps `GUID`.
+//!
+//! Implements `Display` and `FromStr` string conversion, and `Hash` and `Eq`.
+//!
+//! Use the `guid_serde` feature to derive `Serialize` and `Deserialize`.
+
 extern crate comedy;
 #[cfg(feature = "guid_serde")]
 extern crate serde;
@@ -37,6 +51,7 @@ struct GUIDSerde {
     pub Data4: [ctypes::c_uchar; 8],
 }
 
+/// Wraps `GUID`
 #[derive(Clone)]
 #[cfg_attr(feature = "guid_serde", derive(Serialize, Deserialize))]
 #[repr(transparent)]
@@ -70,6 +85,7 @@ impl Debug for Guid {
     }
 }
 
+/// Output a string via `StringFromGUID2()`
 impl Display for Guid {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let mut s: [u16; GUID_STRING_CHARACTERS + 1] = unsafe { mem::uninitialized() };
@@ -94,6 +110,9 @@ impl Display for Guid {
     }
 }
 
+/// Read from a string via `CLSIDFromString()`
+///
+/// Braces (`{}`) are added if missing.
 impl FromStr for Guid {
     type Err = comedy::error::Error;
 

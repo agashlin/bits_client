@@ -1,3 +1,18 @@
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.
+// All files in the project carrying such notice may not be copied, modified, or distributed
+// except according to those terms.
+
+//! Windows `FILETIME` and `SYSTEMTIME` string and binary serialization
+//!
+//! A transparent wrapper is provided for each type.
+//!
+//! Implements `Display` for [`SystemTimeUTC`](struct.SystemTimeUTC.html), and comparison with
+//! `Ord` and `Eq` for [`FileTime`](struct.FileTime.html).
+//!
+//! Use the `filetime_serde` feature to derive `Serialize` and `Deserialize`.
+
 extern crate comedy;
 #[cfg(feature = "filetime_serde")]
 extern crate serde;
@@ -5,6 +20,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate winapi;
 
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter, Result};
 use std::mem;
 use std::result;
@@ -14,8 +30,10 @@ use comedy::check_true;
 use winapi::shared::minwindef::FILETIME;
 #[cfg(feature = "filetime_serde")]
 use winapi::shared::minwindef::{DWORD, WORD};
+use winapi::shared::ntdef::ULARGE_INTEGER;
 use winapi::um::minwinbase::SYSTEMTIME;
-use winapi::um::timezoneapi::FileTimeToSystemTime;
+use winapi::um::sysinfoapi::GetSystemTime;
+use winapi::um::timezoneapi::{FileTimeToSystemTime, SystemTimeToFileTime};
 
 #[cfg(feature = "filetime_serde")]
 use serde_derive::{Deserialize, Serialize};
@@ -30,6 +48,7 @@ struct FileTimeSerde {
     pub dwHighDateTime: DWORD,
 }
 
+/// Wraps `FILETIME`
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "filetime_serde", derive(Serialize, Deserialize))]
 #[repr(transparent)]
@@ -53,6 +72,10 @@ struct SystemTimeSerde {
     pub wMilliseconds: WORD,
 }
 
+/// Wraps `SYSTEMTIME`
+///
+/// The `SYSTEMTIME` struct can be UTC or local time, but `SystemTimeUTC` should only be used for
+/// UTC.
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "filetime_serde", derive(Serialize, Deserialize))]
 #[repr(transparent)]
@@ -61,9 +84,20 @@ pub struct SystemTimeUTC(
 );
 
 impl FileTime {
+    /// Convert to raw integer
+    ///
+    /// `FILETIME` is 100-nanoseconds intervals since January 1, 1601 (UTC), but if the high
+    /// bit is 1 there may be a different interpretation.
     pub fn to_u64(&self) -> u64 {
-        ((self.0.dwHighDateTime as u64) << 32) | (self.0.dwLowDateTime as u64)
+        unsafe {
+            let mut v: ULARGE_INTEGER = mem::zeroed();
+            v.s_mut().LowPart = self.0.dwLowDateTime;
+            v.s_mut().HighPart = self.0.dwHighDateTime;
+            *v.QuadPart()
+        }
     }
+
+    /// Convert to `SystemTimeUTC` via `FileTimeToSystemTime()`
     pub fn to_system_time_utc(&self) -> result::Result<SystemTimeUTC, comedy::Error> {
         unsafe {
             let mut system_time = mem::zeroed();
@@ -84,6 +118,18 @@ impl PartialEq for FileTime {
 
 impl Eq for FileTime {}
 
+impl PartialOrd for FileTime {
+    fn partial_cmp(&self, other: &FileTime) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FileTime {
+    fn cmp(&self, other: &FileTime) -> Ordering {
+        self.to_u64().cmp(&other.to_u64())
+    }
+}
+
 impl Debug for FileTime {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(
@@ -91,6 +137,31 @@ impl Debug for FileTime {
             "FileTime {{ dwLowDateTime: {:?}, dwHighDateTime: {:?} }}",
             self.0.dwLowDateTime, self.0.dwHighDateTime
         )
+    }
+}
+
+impl SystemTimeUTC {
+    /// Get current system time in UTC via `GetSystemTime()`
+    ///
+    /// "Because the system time can be adjusted either forward or backward, do not compare
+    /// system time readings to determine elapsed time."
+    pub fn now() -> SystemTimeUTC {
+        unsafe {
+            let mut system_time = mem::zeroed();
+            GetSystemTime(&mut system_time);
+            SystemTimeUTC(system_time)
+        }
+    }
+
+    /// Convert to `FileTime` via `SystemTimeToFileTime()`
+    pub fn to_file_time(&self) -> result::Result<FileTime, comedy::Error> {
+        unsafe {
+            let mut file_time = mem::zeroed();
+
+            check_true!(SystemTimeToFileTime(&self.0, &mut file_time))?;
+
+            Ok(FileTime(file_time))
+        }
     }
 }
 
@@ -115,6 +186,7 @@ impl Debug for SystemTimeUTC {
     }
 }
 
+/// Format as ISO 8601 date and time: `YYYY-MM-DDThh:mm:ss.fffZ`
 impl Display for SystemTimeUTC {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(
@@ -128,5 +200,32 @@ impl Display for SystemTimeUTC {
             self.0.wSecond,
             self.0.wMilliseconds
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SystemTimeUTC;
+    use winapi::um::minwinbase::SYSTEMTIME;
+
+    #[test]
+    fn round_trip() {
+        let ft = SystemTimeUTC::now().to_file_time().unwrap();
+
+        assert_eq!(ft, ft);
+        assert_eq!(ft, ft.to_system_time_utc().unwrap().to_file_time().unwrap());
+    }
+
+    #[test]
+    fn next_year() {
+        let st_now = SystemTimeUTC::now();
+        let st_next_year = SystemTimeUTC(SYSTEMTIME {
+            wYear: st_now.0.wYear + 1,
+            ..st_now.0
+        });
+
+        let ft_now = st_now.to_file_time().unwrap();
+        let ft_next_year = st_next_year.to_file_time().unwrap();
+        assert!(ft_next_year > ft_now);
     }
 }

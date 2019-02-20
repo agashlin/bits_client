@@ -28,7 +28,7 @@ use std::result;
 use comedy::com::{create_instance_local_server, ComPtr, INIT_MTA};
 use comedy::error::{Error, ResultExt};
 use comedy::wide::{FromWide, ToWide};
-use comedy::{com_call, com_call_cotaskmem_getter, com_call_getter};
+use comedy::{com_call, com_call_getter, com_call_taskmem_getter};
 use filetime_win::FileTime;
 use guid_win::Guid;
 use winapi::shared::minwindef::DWORD;
@@ -252,7 +252,7 @@ impl BackgroundCopyManager {
         unsafe {
             let language_id = LANGIDFROMLCID(GetThreadLocale()) as DWORD;
 
-            Ok(OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+            Ok(OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
                 |desc| self.0,
                 IBackgroundCopyManager::GetErrorDescription(hr, language_id, desc)
             )? as LPWSTR)
@@ -264,7 +264,7 @@ impl BackgroundCopyManager {
 
 fn job_name_eq(job: &ComPtr<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
     let job_name = unsafe {
-        OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+        OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
             |name| job,
             IBackgroundCopyJob::GetDisplayName(name)
         )? as LPWSTR)
@@ -522,14 +522,14 @@ impl BitsJob {
 
             Ok(BitsJobError {
                 context: BitsErrorContext::from(context),
-                context_str: OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+                context_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
                     |desc| error_obj,
                     IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
                 )? as LPWSTR)
                 .to_string_lossy()
                 .into_owned(),
                 error: hresult,
-                error_str: OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+                error_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
                     |desc| error_obj,
                     IBackgroundCopyError::GetErrorDescription(language_id, desc)
                 )? as LPWSTR)
@@ -558,7 +558,7 @@ impl BitsFile {
     /// updated as HTTP redirects are processed.
     pub fn get_remote_name(&self) -> Result<OsString> {
         unsafe {
-            Ok(OsString::from_wide_ptr_null(*com_call_cotaskmem_getter!(
+            Ok(OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
                 |name| self.0,
                 IBackgroundCopyFile::GetRemoteName(name)
             )? as LPWSTR))

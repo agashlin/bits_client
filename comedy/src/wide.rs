@@ -4,7 +4,10 @@
 // All files in the project carrying such notice may not be copied, modified, or distributed
 // except according to those terms.
 
-// Originally from wio-rs b895086
+//! Conversions between `[u16]`, `OsStr`, `Path`, and raw pointers to (possibly null-terminated)
+//! wide character arrays.
+//!
+//! Originally from [wio-rs](https://github.com/retep998/wio-rs) b895086
 use std::ffi::{OsStr, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;

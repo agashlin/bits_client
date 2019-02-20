@@ -1,6 +1,6 @@
 [package]
 name = "comedy"
-description = "Assorted utilities and wrappers for Windows error handling, handles, and COM"
+description = "Utilities for Windows COM, error handling, handles, and strings"
 keywords = ["windows", "com", "win32"]
 categories = ["api-bindings", "os::windows-apis"]
 version = "0.1.0"
