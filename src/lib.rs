@@ -139,7 +139,7 @@ impl BitsClient {
         match self {
             InProcess(client) => Ok(client
                 .monitor_job(guid, interval_millis)
-                .map(|monitor| BitsMonitorClient::InProcess(monitor))),
+                .map(BitsMonitorClient::InProcess)),
         }
     }
 

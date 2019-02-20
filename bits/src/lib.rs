@@ -211,7 +211,7 @@ impl BackgroundCopyManager {
     /// Returns Err if the job was not found.
     pub fn get_job_by_guid(&self, guid: &Guid) -> Result<BitsJob> {
         unsafe { com_call_getter!(|job| self.0, IBackgroundCopyManager::GetJob(&guid.0, job)) }
-            .map(|job| BitsJob(job))
+            .map(BitsJob)
     }
 
     /// Try to find a job with a given GUID.
@@ -220,7 +220,7 @@ impl BackgroundCopyManager {
     pub fn find_job_by_guid(&self, guid: &Guid) -> Result<Option<BitsJob>> {
         Ok(self
             .get_job_by_guid(guid)
-            .map(|job| Some(job))
+            .map(Some)
             .allow_hresult(BG_E_NOT_FOUND as i32, None)?)
     }
 
@@ -250,7 +250,7 @@ impl BackgroundCopyManager {
     /// error. It should only be used for `HRESULT`s returned from BITS COM interfaces.
     pub fn get_error_description(&self, hr: HRESULT) -> Result<String> {
         unsafe {
-            let language_id = LANGIDFROMLCID(GetThreadLocale()) as DWORD;
+            let language_id = DWORD::from(LANGIDFROMLCID(GetThreadLocale()));
 
             Ok(OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
                 |desc| self.0,
@@ -518,7 +518,7 @@ impl BitsJob {
                 IBackgroundCopyError::GetError(&mut context, &mut hresult)
             )?;
 
-            let language_id = LANGIDFROMLCID(GetThreadLocale()) as DWORD;
+            let language_id = DWORD::from(LANGIDFROMLCID(GetThreadLocale()));
 
             Ok(BitsJobError {
                 context: BitsErrorContext::from(context),

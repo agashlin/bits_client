@@ -88,7 +88,7 @@ impl FileTime {
     ///
     /// `FILETIME` is 100-nanoseconds intervals since January 1, 1601 (UTC), but if the high
     /// bit is 1 there may be a different interpretation.
-    pub fn to_u64(&self) -> u64 {
+    pub fn to_u64(self) -> u64 {
         unsafe {
             let mut v: ULARGE_INTEGER = mem::zeroed();
             v.s_mut().LowPart = self.0.dwLowDateTime;
@@ -98,7 +98,7 @@ impl FileTime {
     }
 
     /// Convert to `SystemTimeUTC` via `FileTimeToSystemTime()`
-    pub fn to_system_time_utc(&self) -> result::Result<SystemTimeUTC, comedy::Error> {
+    pub fn to_system_time_utc(self) -> result::Result<SystemTimeUTC, comedy::Error> {
         unsafe {
             let mut system_time = mem::zeroed();
 

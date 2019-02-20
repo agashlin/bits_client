@@ -49,7 +49,7 @@ pub enum Command {
 pub trait CommandType {
     type Success;
     type Failure: Fail;
-    fn new(command: Self) -> Command;
+    fn wrap(command: Self) -> Command;
 }
 
 // Start Job
@@ -65,7 +65,7 @@ pub struct StartJobCommand {
 impl CommandType for StartJobCommand {
     type Success = StartJobSuccess;
     type Failure = StartJobFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::StartJob(cmd)
     }
 }
@@ -111,7 +111,7 @@ pub struct MonitorJobCommand {
 impl CommandType for MonitorJobCommand {
     type Success = ();
     type Failure = MonitorJobFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::MonitorJob(cmd)
     }
 }
@@ -140,7 +140,7 @@ pub struct SuspendJobCommand {
 impl CommandType for SuspendJobCommand {
     type Success = ();
     type Failure = SuspendJobFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::SuspendJob(cmd)
     }
 }
@@ -169,7 +169,7 @@ pub struct ResumeJobCommand {
 impl CommandType for ResumeJobCommand {
     type Success = ();
     type Failure = ResumeJobFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::ResumeJob(cmd)
     }
 }
@@ -199,7 +199,7 @@ pub struct SetJobPriorityCommand {
 impl CommandType for SetJobPriorityCommand {
     type Success = ();
     type Failure = SetJobPriorityFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::SetJobPriority(cmd)
     }
 }
@@ -229,7 +229,7 @@ pub struct SetUpdateIntervalCommand {
 impl CommandType for SetUpdateIntervalCommand {
     type Success = ();
     type Failure = SetUpdateIntervalFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::SetUpdateInterval(cmd)
     }
 }
@@ -254,7 +254,7 @@ pub struct CompleteJobCommand {
 impl CommandType for CompleteJobCommand {
     type Success = ();
     type Failure = CompleteJobFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::CompleteJob(cmd)
     }
 }
@@ -285,7 +285,7 @@ pub struct CancelJobCommand {
 impl CommandType for CancelJobCommand {
     type Success = ();
     type Failure = CancelJobFailure;
-    fn new(cmd: Self) -> Command {
+    fn wrap(cmd: Self) -> Command {
         Command::CancelJob(cmd)
     }
 }

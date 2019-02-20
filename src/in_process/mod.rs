@@ -354,7 +354,7 @@ impl InProcessMonitor {
     }
 
     pub fn get_status(&mut self, timeout_millis: u32) -> Result<JobStatus, Error> {
-        let timeout = Duration::from_millis(timeout_millis as u64);
+        let timeout = Duration::from_millis(u64::from(timeout_millis));
 
         let started = Instant::now();
 
@@ -375,7 +375,7 @@ impl InProcessMonitor {
                 }
 
                 // Get the interval every pass through the loop, in case it has changed.
-                let interval = Duration::from_millis(s.interval_millis as u64);
+                let interval = Duration::from_millis(u64::from(s.interval_millis));
 
                 let wait_until = self.last_status_time.map(|last_status_time| {
                     cmp::min(last_status_time + interval, started + timeout)

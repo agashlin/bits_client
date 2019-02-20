@@ -119,7 +119,7 @@ extern "system" fn release(raw_this: *mut IUnknown) -> ULONG {
         // there should be no references besides `raw_this`. re-Box and to drop immediately.
         let _ = Box::from_raw(raw_this as *mut BackgroundCopyCallback);
 
-        return 0;
+        0
     }
 }
 
