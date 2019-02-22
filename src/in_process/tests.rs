@@ -8,6 +8,10 @@
 // It may make sense to restrict how many tests can run at once. BITS is only supposed to support
 // four simultaneous notifications per user, it is not impossible that this test suite could
 // exceed that.
+//
+// TODO
+// The timings used for these tests are too sensitive, timeouts should be much longer and the
+// expected delay should be quite long.
 
 #![cfg(test)]
 extern crate bits;
