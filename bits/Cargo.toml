@@ -11,18 +11,20 @@ status_serde = ["serde", "serde_derive"]
 comedy = { path = "../comedy" }
 filetime_win = { path = "../filetime_win" }
 guid_win = { path = "../guid_win" }
-winapi = { version = "0.3.6", features = ["basetsd",
-                                          "bits",
-                                          "bits2_5",
-                                          "bitsmsg",
-                                          "guiddef",
-                                          "minwindef",
-                                          "ntdef",
-                                          "rpcndr",
-                                          "unknwnbase",
-                                          "winerror",
-                                          "winnls",
-                                          ] }
-
 serde = { version = "1.0.80", optional = true }
 serde_derive = { version = "1.0.80", optional = true }
+
+[dependencies.winapi]
+version = "0.3.6"
+features = ["basetsd",
+            "bits",
+            "bits2_5",
+            "bitsmsg",
+            "guiddef",
+            "minwindef",
+            "ntdef",
+            "rpcndr",
+            "unknwnbase",
+            "winerror",
+            "winnls",
+            ]
