@@ -6,24 +6,57 @@ extern crate bits_client;
 extern crate comedy;
 //extern crate ctrlc;
 extern crate failure;
+extern crate failure_derive;
 extern crate guid_win;
 
+use std::convert;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::process;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use failure::bail;
+use failure::{AsFail, Fail};
 
-use bits_client::{BitsClient, BitsJobState, BitsMonitorClient, BitsProxyUsage, Guid};
+use bits_client::{BitsClient, BitsJobState, BitsMonitorClient, BitsProxyUsage, PipeError, Guid};
 
-type Result = std::result::Result<(), failure::Error>;
+#[derive(Debug, Fail)]
+enum MyError {
+    #[fail(display = "{}", _0)]
+    Msg(String),
+    #[fail(display = "ComedyError")]
+    ComedyError(#[fail(cause)] comedy::Error),
+    #[fail(display = "PipeError")]
+    PipeError(#[fail(cause)] PipeError),
+}
+
+impl convert::From<PipeError> for MyError {
+    fn from(err: PipeError) -> MyError {
+        MyError::PipeError(err)
+    }
+}
+
+/*impl convert::From<comedy::Error> for MyError {
+    fn from(err: comedy::Error) -> MyError {
+        MyError::ComedyError(err)
+    }
+}*/
+
+macro_rules! bail {
+    ($e:expr) => {
+        return Err($crate::MyError::Msg($e.to_string()));
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        return Err($crate::MyError::Msg(format!($fmt, $($arg)*)));
+    };
+}
+
+type Result = std::result::Result<(), MyError>;
 
 pub fn main() {
     if let Err(err) = entry() {
         eprintln!("{}", err);
-        for cause in err.iter_causes() {
+        for cause in err.as_fail().iter_causes() {
             eprintln!("caused by {}", cause);
         }
 
@@ -113,17 +146,10 @@ fn bits_start(
     //let interval = 10 * 60 * 1000;
     let interval = 1000;
 
-    let result = match client
+    let result = client
         .lock()
         .unwrap()
-        .start_job(url, save_path, proxy_usage, interval)
-    {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = e.clone();
-            return Err(failure::Error::from(e));
-        }
-    };
+        .start_job(url, save_path, proxy_usage, interval)?;
 
     match result {
         Ok((r, monitor_client)) => {
