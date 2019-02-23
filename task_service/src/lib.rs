@@ -121,7 +121,7 @@ impl TaskFolder {
             com_call_getter!(
                 |rt| self.0,
                 ITaskFolder::RegisterTaskDefinition(
-                    if let Some(path) = path {
+                    if let Some(ref path) = path {
                         path.get()
                     } else {
                         ptr::null_mut()
