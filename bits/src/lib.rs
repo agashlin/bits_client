@@ -188,7 +188,7 @@ impl BackgroundCopyManager {
 
     /// Cancel all jobs with the given name.
     ///
-    /// This only attemtps to cancel jobs owned by the current user.
+    /// This only attempts to cancel jobs owned by the current user.
     /// No errors are returned for jobs that failed to cancel.
     pub fn cancel_jobs_by_name(&self, match_name: &OsStr) -> Result<()> {
         unsafe {
@@ -205,7 +205,7 @@ impl BackgroundCopyManager {
                         }
                     }
                     Err(_) => {
-                        break Ok(());
+                        return Ok(());
                     }
                 }
             }
@@ -239,15 +239,11 @@ impl BackgroundCopyManager {
         guid: &Guid,
         match_name: &OsStr,
     ) -> Result<Option<BitsJob>> {
-        if let Some(BitsJob(job)) = self.find_job_by_guid(guid)? {
-            if job_name_eq(&job, match_name)? {
-                Ok(Some(BitsJob(job)))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        }
+        Ok(match self.find_job_by_guid(guid)? {
+            None => None,
+            Some(BitsJob(ref job)) if !job_name_eq(job, match_name)? => None,
+            result => result,
+        })
     }
 
     /// Translate a BITS `HRESULT` to a textual description.
@@ -569,5 +565,53 @@ impl BitsFile {
                 IBackgroundCopyFile::GetRemoteName(name)
             )? as LPWSTR))
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::BackgroundCopyManager;
+    use std::ffi::OsString;
+    use std::mem;
+
+    #[test]
+    #[ignore]
+    fn test_find_job() {
+        let bcm = BackgroundCopyManager::connect().unwrap();
+        let name = OsString::from("bits test job");
+        let wrong_name = OsString::from("bits test jobbo");
+
+        let mut job = bcm.create_job(&name).unwrap();
+        let guid = job.guid().unwrap();
+
+        assert_eq!(
+            bcm.find_job_by_guid(&guid)
+                .unwrap()
+                .unwrap()
+                .guid()
+                .unwrap(),
+            guid
+        );
+        assert_eq!(
+            bcm.find_job_by_guid_and_name(&guid, &name)
+                .unwrap()
+                .unwrap()
+                .guid()
+                .unwrap(),
+            guid
+        );
+        assert!(bcm
+            .find_job_by_guid_and_name(&guid, &wrong_name)
+            .unwrap()
+            .is_none());
+
+        job.cancel().unwrap();
+        mem::drop(job);
+
+        assert!(bcm.find_job_by_guid(&guid).unwrap().is_none());
+        assert!(bcm
+            .find_job_by_guid_and_name(&guid, &name)
+            .unwrap()
+            .is_none());
     }
 }
