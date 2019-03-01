@@ -89,15 +89,12 @@ fn usage() -> String {
 }
 
 fn entry() -> Result {
-    #[allow(unused_mut)]
-    let mut args: Vec<_> = env::args_os().collect();
+    let args: Vec<_> = env::args_os().collect();
 
-    let mut client = match () {
-        _ => BitsClient::new(
-            OsString::from("bits_client test"),
-            OsString::from("C:\\ProgramData"),
-        )?,
-    };
+    let mut client = BitsClient::new(
+        OsString::from("bits_client test"),
+        OsString::from("C:\\ProgramData"),
+    )?;
 
     if args.len() < 2 {
         eprintln!("{}", usage());
