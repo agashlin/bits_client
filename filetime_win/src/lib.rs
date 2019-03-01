@@ -4,15 +4,42 @@
 // All files in the project carrying such notice may not be copied, modified, or distributed
 // except according to those terms.
 
-//! Windows `FILETIME` and `SYSTEMTIME` string and binary serialization
+//! Windows [`FILETIME`](https://docs.microsoft.com/en-us/windows/desktop/api/minwinbase/ns-minwinbase-filetime)
+//! and [`SYSTEMTIME`](https://docs.microsoft.com/en-us/windows/desktop/api/minwinbase/ns-minwinbase-systemtime)
+//! string and binary serialization
 //!
-//! A transparent wrapper is provided for each type.
-//!
-//! Implements `Display` for [`SystemTimeUTC`](struct.SystemTimeUTC.html), and comparison with
+//! A transparent wrapper is provided for each type, with
+//! `Display` for [`SystemTimeUTC`](struct.SystemTimeUTC.html) and
 //! `Ord` and `Eq` for [`FileTime`](struct.FileTime.html).
 //!
-//! Use the `filetime_serde` feature to derive `Serialize` and `Deserialize`.
-
+//! # serde #
+//!
+//! Use the `filetime_serde` feature to derive `Serialize` and `Deserialize`, you can then
+//! derive them for structs containing `FILETIME` and `SYSTEMTIME` like so:
+//!
+//! ```
+//! # fn main() {}
+//! #
+//! # #[cfg(feature = "filetime_serde")]
+//! # extern crate serde_derive;
+//! # extern crate winapi;
+//! #
+//! # #[cfg(feature = "filetime_serde")]
+//! # mod test {
+//! use filetime_win::{FileTimeSerde, SystemTimeSerde};
+//! use serde_derive::{Deserialize, Serialize};
+//! use winapi::shared::minwindef::FILETIME;
+//! use winapi::um::minwinbase::SYSTEMTIME;
+//!
+//! #[derive(Serialize, Deserialize)]
+//! struct SerdeTest {
+//!     #[serde(with = "FileTimeSerde")]
+//!     ft: FILETIME,
+//!     #[serde(with = "SystemTimeSerde")]
+//!     st: SYSTEMTIME,
+//! }
+//! # }
+//! ```
 extern crate comedy;
 #[cfg(feature = "filetime_serde")]
 extern crate serde;
@@ -40,12 +67,11 @@ use serde_derive::{Deserialize, Serialize};
 
 #[cfg(feature = "filetime_serde")]
 #[allow(non_snake_case)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(remote = "FILETIME")]
-#[repr(C)]
-struct FileTimeSerde {
-    pub dwLowDateTime: DWORD,
-    pub dwHighDateTime: DWORD,
+pub struct FileTimeSerde {
+    dwLowDateTime: DWORD,
+    dwHighDateTime: DWORD,
 }
 
 /// Wraps `FILETIME`
@@ -58,24 +84,24 @@ pub struct FileTime(
 
 #[cfg(feature = "filetime_serde")]
 #[allow(non_snake_case)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(remote = "SYSTEMTIME")]
-#[repr(C)]
-struct SystemTimeSerde {
-    pub wYear: WORD,
-    pub wMonth: WORD,
-    pub wDayOfWeek: WORD,
-    pub wDay: WORD,
-    pub wHour: WORD,
-    pub wMinute: WORD,
-    pub wSecond: WORD,
-    pub wMilliseconds: WORD,
+pub struct SystemTimeSerde {
+    wYear: WORD,
+    wMonth: WORD,
+    wDayOfWeek: WORD,
+    wDay: WORD,
+    wHour: WORD,
+    wMinute: WORD,
+    wSecond: WORD,
+    wMilliseconds: WORD,
 }
 
 /// Wraps `SYSTEMTIME`
 ///
 /// The `SYSTEMTIME` struct can be UTC or local time, but `SystemTimeUTC` should only be used for
 /// UTC.
+///
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "filetime_serde", derive(Serialize, Deserialize))]
 #[repr(transparent)]
@@ -209,7 +235,7 @@ mod tests {
     use winapi::um::minwinbase::SYSTEMTIME;
 
     #[test]
-    fn round_trip() {
+    fn roundtrip() {
         let ft = SystemTimeUTC::now().to_file_time().unwrap();
 
         assert_eq!(ft, ft);

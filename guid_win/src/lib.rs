@@ -6,11 +6,38 @@
 
 //! Windows `GUID`/`CLSID` string and binary serialization
 //!
-//! [`Guid`](struct.Guid.html) transparently wraps `GUID`.
+//! [`Guid`](struct.Guid.html) transparently wraps
+//! [`GUID`](https://msdn.microsoft.com/en-us/library/windows/desktop/aa373931(v=vs.85).aspx).
 //!
 //! Implements `Display` and `FromStr` string conversion, and `Hash` and `Eq`.
 //!
 //! Use the `guid_serde` feature to derive `Serialize` and `Deserialize`.
+//!
+//! # serde #
+//!
+//! Use the `guid_serde` feature to derive `Serialize` and `Deserialize`, you can then
+//! derive them for structs containing `GUID` like so:
+//!
+//! ```
+//! # fn main() {}
+//! #
+//! # #[cfg(feature = "guid_serde")]
+//! # extern crate serde_derive;
+//! # extern crate winapi;
+//! #
+//! # #[cfg(feature = "guid_serde")]
+//! # mod test {
+//! use guid_win::GUIDSerde;
+//! use serde_derive::{Deserialize, Serialize};
+//! use winapi::shared::guiddef::GUID;
+//!
+//! #[derive(Serialize, Deserialize)]
+//! struct SerdeTest {
+//!     #[serde(with = "GUIDSerde")]
+//!     guid: GUID,
+//! }
+//! # }
+//! ```
 
 extern crate comedy;
 #[cfg(feature = "guid_serde")]
@@ -42,12 +69,11 @@ const GUID_STRING_CHARACTERS: usize = 38;
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "GUID")]
-#[repr(C)]
-struct GUIDSerde {
-    pub Data1: ctypes::c_ulong,
-    pub Data2: ctypes::c_ushort,
-    pub Data3: ctypes::c_ushort,
-    pub Data4: [ctypes::c_uchar; 8],
+pub struct GUIDSerde {
+    Data1: ctypes::c_ulong,
+    Data2: ctypes::c_ushort,
+    Data3: ctypes::c_ushort,
+    Data4: [ctypes::c_uchar; 8],
 }
 
 /// Wraps `GUID`
