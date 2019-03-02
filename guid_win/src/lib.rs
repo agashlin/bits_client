@@ -40,6 +40,7 @@
 //! ```
 
 extern crate comedy;
+extern crate lpwstr;
 #[cfg(feature = "guid_serde")]
 extern crate serde;
 #[cfg(feature = "guid_serde")]
@@ -54,7 +55,7 @@ use std::result;
 use std::str::FromStr;
 
 use comedy::check_succeeded;
-use comedy::wide::{FromWide, ToWide};
+use lpwstr::{FromWide, ToWide};
 
 use winapi::ctypes;
 use winapi::shared::guiddef::GUID;

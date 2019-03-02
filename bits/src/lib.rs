@@ -16,6 +16,7 @@
 extern crate comedy;
 extern crate filetime_win;
 extern crate guid_win;
+extern crate lpwstr;
 extern crate winapi;
 
 #[cfg(feature = "status_serde")]
@@ -33,10 +34,10 @@ use std::result;
 
 use comedy::com::{create_instance_local_server, ComPtr, INIT_MTA};
 use comedy::error::{Error, ResultExt};
-use comedy::wide::{FromWide, ToWide};
 use comedy::{com_call, com_call_getter, com_call_taskmem_getter};
 use filetime_win::FileTime;
 use guid_win::Guid;
+use lpwstr::{FromWide, ToWide};
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, LPWSTR, ULONG};
 use winapi::um::bits::{

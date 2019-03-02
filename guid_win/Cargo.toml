@@ -11,7 +11,8 @@ license = "MIT/Apache-2.0"
 guid_serde = ["serde", "serde_derive"]
 
 [dependencies]
-comedy = { path = "../comedy" }
+comedy = "0.1.0-alpha"
+lpwstr = "0.1.0-alpha"
 winapi = { version = "0.3.6", features = ["combaseapi", "guiddef"] }
 
 serde = { version = "1.0.80", optional = true }
