@@ -16,7 +16,6 @@
 extern crate comedy;
 extern crate filetime_win;
 extern crate guid_win;
-extern crate lpwstr;
 extern crate winapi;
 
 #[cfg(feature = "status_serde")]
@@ -26,6 +25,7 @@ extern crate serde_derive;
 
 mod callback;
 pub mod status;
+mod wide;
 
 use std::ffi::{OsStr, OsString};
 use std::mem;
@@ -37,7 +37,6 @@ use comedy::error::{Error, ResultExt};
 use comedy::{com_call, com_call_getter, com_call_taskmem_getter};
 use filetime_win::FileTime;
 use guid_win::Guid;
-use lpwstr::{FromWide, ToWide};
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, LPWSTR, ULONG};
 use winapi::um::bits::{
@@ -59,6 +58,7 @@ pub use winapi::um::bitsmsg::{BG_S_PARTIAL_COMPLETE, BG_S_UNABLE_TO_DELETE_FILES
 pub use status::{
     BitsErrorContext, BitsJobError, BitsJobProgress, BitsJobState, BitsJobStatus, BitsJobTimes,
 };
+use wide::{FromWidePtrNull, ToWideNull};
 
 pub use winapi::shared::winerror::E_FAIL;
 

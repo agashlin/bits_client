@@ -10,7 +10,6 @@ status_serde = ["serde", "serde_derive"]
 [dependencies]
 comedy = "0.1.0-alpha"
 filetime_win = "0.1.0-alpha"
-lpwstr = "0.1.0-alpha"
 guid_win = "0.1.0-alpha"
 serde = { version = "1.0.80", optional = true }
 serde_derive = { version = "1.0.80", optional = true }
