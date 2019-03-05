@@ -227,7 +227,7 @@ test! {
         let start = Instant::now();
 
         // First immediate report
-        monitor.get_status(timeout).expect("should initially be ok");
+        monitor.get_status(timeout).expect("should initially be ok").unwrap();
 
         // ~250ms the cancel should cause an immediate disconnect (otherwise we wouldn't get
         // an update until 1s when the transfer completes or 10s when the interval expires)
@@ -272,7 +272,7 @@ test! {
                         panic!("monitor failed before completion {:?}", e);
                     }
                 }
-                Ok(status) => match BitsJobState::from(status.state) {
+                Ok(Ok(status)) => match BitsJobState::from(status.state) {
                     BitsJobState::Connecting
                         | BitsJobState::Transferring => {
                             //eprintln!("{:?}", BitsJobState::from(status.state));
@@ -286,6 +286,7 @@ test! {
                         panic!(format!("{:?}", status));
                     }
                 }
+                Ok(Err(e)) => panic!(format!("{:?}", e)),
             }
         }
 
@@ -326,12 +327,12 @@ test! {
         let start = Instant::now();
 
         // First immediate report
-        monitor.get_status(timeout).expect("should initially be ok");
+        monitor.get_status(timeout).expect("should initially be ok").unwrap();
         assert!(start.elapsed() < Duration::from_millis(100));
 
         // Transferred notification should come when the job completes in ~250 ms, otherwise we
         // will be stuck until timeout.
-        let status = monitor.get_status(timeout).expect("should get status update");
+        let status = monitor.get_status(timeout).expect("should get status update").unwrap();
         assert!(start.elapsed() < Duration::from_millis(1000));
         assert_eq!(status.state, BitsJobState::Transferred);
 
@@ -368,11 +369,11 @@ test! {
             });
 
         // First immediate report
-        monitor.get_status(timeout).expect("should initially be ok");
+        monitor.get_status(timeout).expect("should initially be ok").unwrap();
         assert!(start.elapsed() < Duration::from_millis(100));
 
         // Next report should be rescheduled to 500ms by the spawned thread
-        monitor.get_status(timeout).expect("expected second status");
+        monitor.get_status(timeout).expect("expected second status").unwrap();
         assert!(start.elapsed() < Duration::from_millis(750));
         assert!(start.elapsed() > Duration::from_millis(400));
 

@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use failure::{AsFail, Fail};
 
+use bits_client::bits_protocol::HResultMessage;
 use bits_client::{BitsClient, BitsJobState, BitsMonitorClient, BitsProxyUsage, Guid, PipeError};
 
 #[derive(Debug, Fail)]
@@ -28,6 +29,8 @@ enum MyError {
     ComedyError(#[fail(cause)] comedy::Error),
     #[fail(display = "PipeError")]
     PipeError(#[fail(cause)] PipeError),
+    #[fail(display = "HResultMessage")]
+    HResultMessage(#[fail(cause)] HResultMessage),
 }
 
 impl convert::From<PipeError> for MyError {
@@ -39,6 +42,12 @@ impl convert::From<PipeError> for MyError {
 impl convert::From<comedy::Error> for MyError {
     fn from(err: comedy::Error) -> MyError {
         MyError::ComedyError(err)
+    }
+}
+
+impl convert::From<HResultMessage> for MyError {
+    fn from(err: HResultMessage) -> MyError {
+        MyError::HResultMessage(err)
     }
 }
 
@@ -208,7 +217,7 @@ fn monitor_loop(
     */
 
     loop {
-        let status = monitor_client.get_status(wait_millis * 10)?;
+        let status = monitor_client.get_status(wait_millis * 10)??;
 
         println!("{:?} {:?}", BitsJobState::from(status.state), status);
 

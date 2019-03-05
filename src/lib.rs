@@ -229,11 +229,18 @@ impl BitsMonitorClient {
     /// this will return `Err(Error::Timeout)`. Any `Err` returned, including timeout, indicates
     /// that the monitor has been stopped; the `BitsMonitorClient` should then be discarded.
     ///
+    /// As with methods on `BitsClient`, `BitsMonitorClient::get_status()` has an inner `Result`
+    /// type which indicates an error returned from the server. Any `Err` here also indicates that
+    /// the monitor has stopped after yielding the result.
+    ///
     /// The first time `get_status` is called it will return a status without any delay.
     ///
     /// If there is an error or the transfer completes, a result may be available sooner than
     /// the monitor interval.
-    pub fn get_status(&mut self, timeout_millis: u32) -> Result<JobStatus, Error> {
+    pub fn get_status(
+        &mut self,
+        timeout_millis: u32,
+    ) -> Result<Result<JobStatus, HResultMessage>, Error> {
         match self {
             BitsMonitorClient::InProcess(client) => client.get_status(timeout_millis),
         }

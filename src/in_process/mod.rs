@@ -353,7 +353,10 @@ impl InProcessMonitor {
         Ok((monitor, control))
     }
 
-    pub fn get_status(&mut self, timeout_millis: u32) -> Result<JobStatus, Error> {
+    pub fn get_status(
+        &mut self,
+        timeout_millis: u32,
+    ) -> Result<Result<JobStatus, HResultMessage>, Error> {
         let timeout = Duration::from_millis(u64::from(timeout_millis));
 
         let started = Instant::now();
@@ -368,10 +371,11 @@ impl InProcessMonitor {
                 }
 
                 if started.elapsed() > timeout {
-                    // Timed out, exit loop to disconnect and return timeout error.
+                    // Timed out, immediately return timeout error.
                     // This should not normally happen with the in-process monitor, but e.g. the
                     // monitor interval could be longer than the timeout.
-                    break Err(Error::Timeout);
+                    s.shutdown = true;
+                    return Err(Error::Timeout);
                 }
 
                 // Get the interval every pass through the loop, in case it has changed.
@@ -384,12 +388,12 @@ impl InProcessMonitor {
                 if s.notified {
                     // Notified, exit loop to get status.
                     s.notified = false;
-                    break Ok(());
+                    break;
                 }
 
                 if wait_until.is_none() {
                     // First status report, no waiting, exit loop to get status.
-                    break Ok(());
+                    break;
                 }
 
                 let wait_until = wait_until.unwrap();
@@ -397,7 +401,7 @@ impl InProcessMonitor {
 
                 if wait_until <= wait_start {
                     // Status report due, exit loop to get status.
-                    break Ok(());
+                    break;
                 }
 
                 // Wait.
@@ -412,14 +416,30 @@ impl InProcessMonitor {
                 // Mutex re-acquired, loop.
             }
         }
-        .and_then(|()| {
-            // No error yet, start getting status now.
-            self.last_status_time = Some(Instant::now());
-            Ok(BackgroundCopyManager::connect()?.get_job_by_guid(&self.guid)?)
-        })
-        .and_then(|mut job| {
-            // Got job successfully, get status.
-            let status = job.get_status().map_err(|_| Error::NotConnected)?;
+
+        // No error yet, start getting status now.
+        self.last_status_time = Some(Instant::now());
+
+        let bcm = match BackgroundCopyManager::connect() {
+            Ok(bcm) => bcm,
+            Err(e) => {
+                // On any error, disconnect.
+                self.vars.1.lock().unwrap().shutdown = true;
+
+                // Errors below can use the BCM to do `format_error()`, but this one just gets the
+                // basic `comedy::Error` treatment.
+                return Ok(Err(HResultMessage {
+                    // TODO: These error code types should be fixed.
+                    hr: e.get_hresult().unwrap(),
+                    message: format!("{}", e),
+                }));
+            }
+        };
+
+        Ok((|| {
+            let mut job = bcm.get_job_by_guid(&self.guid)?;
+
+            let status = job.get_status()?;
             let url = job.get_first_file()?.get_remote_name()?;
 
             Ok(JobStatus {
@@ -442,12 +462,12 @@ impl InProcessMonitor {
                     self.last_url.clone()
                 },
             })
-        })
-        .or_else(|e| {
+        })()
+        .map_err(|e| {
             // On any error, disconnect.
             self.vars.1.lock().unwrap().shutdown = true;
-            Err(e)
-        })
+            format_error(&bcm, e)
+        }))
     }
 }
 
