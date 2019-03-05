@@ -32,13 +32,14 @@ use std::mem;
 use std::ptr;
 use std::result;
 
-use comedy::com::{create_instance_local_server, ComPtr, INIT_MTA};
-use comedy::error::{Error, ResultExt};
+use comedy::com::{create_instance_local_server, ComRef, INIT_MTA};
+use comedy::error::{HResult, ResultExt};
 use comedy::{com_call, com_call_getter, com_call_taskmem_getter};
 use filetime_win::FileTime;
 use guid_win::Guid;
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, LPWSTR, ULONG};
+use winapi::shared::winerror::S_FALSE;
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyFile, IBackgroundCopyJob, IBackgroundCopyManager,
     IEnumBackgroundCopyFiles, IEnumBackgroundCopyJobs, BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND,
@@ -83,7 +84,7 @@ pub enum BitsProxyUsage {
     AutoDetect = BG_JOB_PROXY_USAGE_AUTODETECT,
 }
 
-type Result<T> = result::Result<T, Error>;
+type Result<T> = result::Result<T, HResult>;
 
 #[doc(hidden)]
 mod winapi_temp {
@@ -133,7 +134,7 @@ mod winapi_temp {
     }}
 }
 
-pub struct BackgroundCopyManager(ComPtr<IBackgroundCopyManager>);
+pub struct BackgroundCopyManager(ComRef<IBackgroundCopyManager>);
 
 impl BackgroundCopyManager {
     /// Get access to the local BITS service.
@@ -192,23 +193,26 @@ impl BackgroundCopyManager {
     /// This only attempts to cancel jobs owned by the current user.
     /// No errors are returned for jobs that failed to cancel.
     pub fn cancel_jobs_by_name(&self, match_name: &OsStr) -> Result<()> {
-        unsafe {
-            let jobs = com_call_getter!(|jobs| self.0, IBackgroundCopyManager::EnumJobs(0, jobs))?;
+        let jobs =
+            unsafe { com_call_getter!(|jobs| self.0, IBackgroundCopyManager::EnumJobs(0, jobs))? };
 
-            loop {
-                match com_call_getter!(
+        loop {
+            let result = unsafe {
+                com_call_getter!(
                     |job| jobs,
                     IEnumBackgroundCopyJobs::Next(1, job, ptr::null_mut())
-                ) {
-                    Ok(job) => {
-                        if job_name_eq(&job, match_name)? {
+                )
+            };
+            match result {
+                Ok(job) => {
+                    if job_name_eq(&job, match_name)? {
+                        unsafe {
                             let _ = com_call!(job, IBackgroundCopyJob::Cancel());
                         }
                     }
-                    Err(_) => {
-                        return Ok(());
-                    }
                 }
+                Err(HResult { hr: S_FALSE, .. }) => return Ok(()),
+                Err(e) => return Err(e),
             }
         }
     }
@@ -228,7 +232,7 @@ impl BackgroundCopyManager {
         Ok(self
             .get_job_by_guid(guid)
             .map(Some)
-            .allow_hresult(BG_E_NOT_FOUND as i32, None)?)
+            .allow_err(BG_E_NOT_FOUND as i32, None)?)
     }
 
     /// Try to find a job with a given GUID and name.
@@ -265,7 +269,7 @@ impl BackgroundCopyManager {
     }
 }
 
-fn job_name_eq(job: &ComPtr<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
+fn job_name_eq(job: &ComRef<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
     let job_name = unsafe {
         OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
             |name| job,
@@ -276,7 +280,7 @@ fn job_name_eq(job: &ComPtr<IBackgroundCopyJob>, match_name: &OsStr) -> Result<b
     Ok(job_name == match_name)
 }
 
-pub struct BitsJob(ComPtr<IBackgroundCopyJob>);
+pub struct BitsJob(ComRef<IBackgroundCopyJob>);
 
 impl BitsJob {
     /// Get the job's GUID.
@@ -307,14 +311,19 @@ impl BitsJob {
     ///
     /// This is provided for collecting the redirected remote name of single file jobs.
     pub fn get_first_file(&mut self) -> Result<BitsFile> {
+        let files;
         unsafe {
-            let files = com_call_getter!(|e| self.0, IBackgroundCopyJob::EnumFiles(e))?;
-            let file = com_call_getter!(
-                |f| files,
-                IEnumBackgroundCopyFiles::Next(1, f, ptr::null_mut())
-            )?;
-            Ok(BitsFile(file))
+            files = com_call_getter!(|e| self.0, IBackgroundCopyJob::EnumFiles(e))?;
         }
+
+        let file = unsafe {
+            com_call_getter!(
+                |file| files,
+                IEnumBackgroundCopyFiles::Next(1, file, ptr::null_mut())
+            )?
+        };
+
+        Ok(BitsFile(file))
     }
 
     /// Set the job's description string.
@@ -512,7 +521,7 @@ impl BitsJob {
         })
     }
 
-    fn get_error(error_obj: ComPtr<IBackgroundCopyError>) -> Result<BitsJobError> {
+    fn get_error(error_obj: ComRef<IBackgroundCopyError>) -> Result<BitsJobError> {
         let mut context = 0;
         let mut hresult = 0;
         unsafe {
@@ -548,7 +557,7 @@ impl BitsJob {
     }
 }
 
-pub struct BitsFile(ComPtr<IBackgroundCopyFile>);
+pub struct BitsFile(ComRef<IBackgroundCopyFile>);
 
 /// A single file in a BITS job.
 ///

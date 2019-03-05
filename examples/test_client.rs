@@ -25,8 +25,10 @@ use bits_client::{BitsClient, BitsJobState, BitsMonitorClient, BitsProxyUsage, G
 enum MyError {
     #[fail(display = "{}", _0)]
     Msg(String),
-    #[fail(display = "ComedyError")]
-    ComedyError(#[fail(cause)] comedy::Error),
+    #[fail(display = "HResult")]
+    HResult(#[fail(cause)] comedy::HResult),
+    #[fail(display = "Win32Error")]
+    Win32Error(#[fail(cause)] comedy::Win32Error),
     #[fail(display = "PipeError")]
     PipeError(#[fail(cause)] PipeError),
     #[fail(display = "HResultMessage")]
@@ -39,9 +41,15 @@ impl convert::From<PipeError> for MyError {
     }
 }
 
-impl convert::From<comedy::Error> for MyError {
-    fn from(err: comedy::Error) -> MyError {
-        MyError::ComedyError(err)
+impl convert::From<comedy::HResult> for MyError {
+    fn from(err: comedy::HResult) -> MyError {
+        MyError::HResult(err)
+    }
+}
+
+impl convert::From<comedy::Win32Error> for MyError {
+    fn from(err: comedy::Win32Error) -> MyError {
+        MyError::Win32Error(err)
     }
 }
 

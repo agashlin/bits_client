@@ -28,12 +28,11 @@ macro_rules! get_job {
     }};
 }
 
-fn format_error(bcm: &BackgroundCopyManager, error: comedy::Error) -> HResultMessage {
-    let hr = error.get_hresult().unwrap();
-    let bits_description = bcm.get_error_description(hr).ok();
+fn format_error(bcm: &BackgroundCopyManager, error: comedy::HResult) -> HResultMessage {
+    let bits_description = bcm.get_error_description(error.hr).ok();
 
     HResultMessage {
-        hr,
+        hr: error.hr,
         message: if let Some(desc) = bits_description {
             format!("{}: {}", error, desc)
         } else {
@@ -298,7 +297,7 @@ impl InProcessMonitor {
     fn new(
         job: &mut BitsJob,
         interval_millis: u32,
-    ) -> Result<(InProcessMonitor, InProcessMonitorControl), comedy::Error> {
+    ) -> Result<(InProcessMonitor, InProcessMonitorControl), comedy::HResult> {
         let guid = job.guid()?;
 
         let vars = Arc::new((
@@ -427,10 +426,9 @@ impl InProcessMonitor {
                 self.vars.1.lock().unwrap().shutdown = true;
 
                 // Errors below can use the BCM to do `format_error()`, but this one just gets the
-                // basic `comedy::Error` treatment.
+                // basic `comedy::HResult` treatment.
                 return Ok(Err(HResultMessage {
-                    // TODO: These error code types should be fixed.
-                    hr: e.get_hresult().unwrap(),
+                    hr: e.hr,
                     message: format!("{}", e),
                 }));
             }

@@ -7,7 +7,7 @@
 use std::panic::{catch_unwind, RefUnwindSafe};
 use std::sync::Mutex;
 
-use comedy::Error;
+use comedy::HResult;
 use guid_win::Guid;
 use winapi::ctypes::c_void;
 use winapi::shared::guiddef::REFIID;
@@ -55,7 +55,7 @@ impl BackgroundCopyCallback {
         transferred_cb: Option<Box<TransferredCallback>>,
         error_cb: Option<Box<ErrorCallback>>,
         modification_cb: Option<Box<ModificationCallback>>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), HResult> {
         let cb = Box::new(BackgroundCopyCallback {
             interface: IBackgroundCopyCallback { lpVtbl: &VTBL },
             rc: Mutex::new(1),

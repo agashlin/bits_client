@@ -34,7 +34,7 @@ use failure::Fail;
 pub use bits::status::{BitsErrorContext, BitsJobState, BitsJobTimes};
 pub use bits::{BitsJobProgress, BitsJobStatus, BitsProxyUsage};
 pub use bits_protocol::{JobError, JobStatus};
-pub use comedy::Error as ComedyError;
+pub use comedy::HResult;
 pub use guid_win::Guid;
 
 // These errors would come from a Local Service client but are mostly unused currently.
@@ -48,11 +48,11 @@ pub enum PipeError {
     #[fail(display = "Should have written {} bytes, wrote {}", _0, _1)]
     WriteCount(usize, u32),
     #[fail(display = "Windows API error")]
-    Api(#[fail(cause)] ComedyError),
+    Api(#[fail(cause)] HResult),
 }
 
-impl convert::From<ComedyError> for PipeError {
-    fn from(err: ComedyError) -> PipeError {
+impl convert::From<HResult> for PipeError {
+    fn from(err: HResult) -> PipeError {
         PipeError::Api(err)
     }
 }
