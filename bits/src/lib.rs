@@ -48,7 +48,7 @@ use winapi::um::bits::{
     BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSIENT_ERROR, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE,
     BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
 };
-use winapi::um::bits2_5::BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT;
+use winapi::um::bits2_5::{IBackgroundCopyJobHttpOptions, BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT};
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
 use winapi::um::unknwnbase::IUnknown;
 use winapi::um::winnls::GetThreadLocale;
@@ -86,54 +86,6 @@ pub enum BitsProxyUsage {
 
 type Result<T> = result::Result<T, HResult>;
 
-#[doc(hidden)]
-mod winapi_temp {
-    use winapi::RIDL;
-
-    // temporarily here until https://github.com/retep998/winapi-rs/pull/704 is available
-    RIDL! {#[uuid(0x4991d34b, 0x80a1, 0x4291, 0x83, 0xb6, 0x33, 0x28, 0x36, 0x6b, 0x90, 0x97)]
-    class BcmClass;}
-
-    // temporarily here until https://github.com/retep998/winapi-rs/pull/737 is available
-    use winapi::shared::ntdef::{HRESULT, LPCWSTR, LPWSTR, ULONG};
-    use winapi::shared::rpcndr::byte;
-    use winapi::um::bits2_5::BG_CERT_STORE_LOCATION;
-    use winapi::um::unknwnbase::{IUnknown, IUnknownVtbl};
-    RIDL! {#[uuid(0xf1bd1079, 0x9f01, 0x4bdc, 0x80, 0x36, 0xf0, 0x9b, 0x70, 0x09, 0x50, 0x66)]
-    interface IBackgroundCopyJobHttpOptions(IBackgroundCopyJobHttpOptionsVtbl):
-        IUnknown(IUnknownVtbl) {
-        fn SetClientCertificateByID(
-            StoreLocation: BG_CERT_STORE_LOCATION,
-            StoreName: LPCWSTR,
-            pCertHashBlob: *mut byte,
-        ) -> HRESULT,
-        fn SetClientCertificateByName(
-            StoreLocation: BG_CERT_STORE_LOCATION,
-            StoreName: LPCWSTR,
-            SubjectName: LPCWSTR,
-        ) -> HRESULT,
-        fn RemoveClientCertificate() -> HRESULT,
-        fn GetClientCertificate(
-            pStoreLocation: *mut BG_CERT_STORE_LOCATION,
-            pStoreName: *mut LPWSTR,
-            ppCertHashBlob: *mut *mut byte,
-            pSubjectName: *mut LPWSTR,
-        ) -> HRESULT,
-        fn SetCustomHeaders(
-            RequestHeaders: LPCWSTR,
-        ) -> HRESULT,
-        fn GetCustomHeaders(
-            pRequestHeaders: *mut LPWSTR,
-        ) -> HRESULT,
-        fn SetSecurityFlags(
-            Flags: ULONG,
-        ) -> HRESULT,
-        fn GetSecurityFlags(
-            pFlags: *mut ULONG,
-        ) -> HRESULT,
-    }}
-}
-
 pub struct BackgroundCopyManager(ComRef<IBackgroundCopyManager>);
 
 impl BackgroundCopyManager {
@@ -150,8 +102,6 @@ impl BackgroundCopyManager {
     /// If there are mismatched `CoUninitialize` calls on this thread which lead to COM shutting
     /// down before this thread ends, unsafe behavior may result.
     pub fn connect() -> Result<BackgroundCopyManager> {
-        use winapi_temp::BcmClass;
-
         INIT_MTA.with(|com| {
             if let Err(e) = com {
                 return Err(e.clone());
@@ -167,7 +117,7 @@ impl BackgroundCopyManager {
         // the `BitsJob` methods.
 
         Ok(BackgroundCopyManager(create_instance_local_server::<
-            BcmClass,
+            winapi::um::bits::BackgroundCopyManager,
             IBackgroundCopyManager,
         >()?))
     }
@@ -395,8 +345,6 @@ impl BitsJob {
     ///
     /// First available in Windows Vista.
     pub fn set_redirect_report(&mut self) -> Result<()> {
-        use winapi_temp::IBackgroundCopyJobHttpOptions;
-
         unsafe {
             com_call!(
                 comedy::com::cast(&self.0)?,
