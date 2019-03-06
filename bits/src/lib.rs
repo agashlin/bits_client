@@ -211,8 +211,14 @@ impl BackgroundCopyManager {
                         }
                     }
                 }
-                Err(HResult { hr: S_FALSE, .. }) => return Ok(()),
-                Err(e) => return Err(e),
+                Err(e) => {
+                    if e.code() == S_FALSE {
+                        // Ran out of jobs to enumerate
+                        return Ok(());
+                    } else {
+                        return Err(e);
+                    }
+                }
             }
         }
     }

@@ -6,7 +6,7 @@ license = "MPL-2.0"
 
 [dependencies]
 bits = { path = "./bits" }
-comedy = "0.1.0-alpha2"
+comedy = "0.1.0-alpha3"
 guid_win = "0.1.0-alpha3"
 
 [dependencies.failure]

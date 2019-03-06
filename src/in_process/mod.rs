@@ -29,10 +29,10 @@ macro_rules! get_job {
 }
 
 fn format_error(bcm: &BackgroundCopyManager, error: comedy::HResult) -> HResultMessage {
-    let bits_description = bcm.get_error_description(error.hr).ok();
+    let bits_description = bcm.get_error_description(error.code()).ok();
 
     HResultMessage {
-        hr: error.hr,
+        hr: error.code(),
         message: if let Some(desc) = bits_description {
             format!("{}: {}", error, desc)
         } else {
@@ -428,7 +428,7 @@ impl InProcessMonitor {
                 // Errors below can use the BCM to do `format_error()`, but this one just gets the
                 // basic `comedy::HResult` treatment.
                 return Ok(Err(HResultMessage {
-                    hr: e.hr,
+                    hr: e.code(),
                     message: format!("{}", e),
                 }));
             }
