@@ -28,6 +28,3 @@ features = ["basetsd",
             "winerror",
             "winnls",
             ]
-
-[replace]
-"winapi:0.3.6" = { git = "https://github.com/froydnj/winapi-rs", branch = "aarch64" }

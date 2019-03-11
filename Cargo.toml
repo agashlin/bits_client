@@ -22,6 +22,3 @@ version = "0.1.3"
 lazy_static = "1.0.1"
 rand = "0.4.3"
 tempdir = "0.3.5"
-
-[replace]
-"winapi:0.3.6" = { git = "https://github.com/froydnj/winapi-rs", branch = "aarch64" }
