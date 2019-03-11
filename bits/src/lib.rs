@@ -35,18 +35,17 @@ use std::result;
 use comedy::com::{create_instance_local_server, ComRef, INIT_MTA};
 use comedy::error::{HResult, ResultExt};
 use comedy::{com_call, com_call_getter, com_call_taskmem_getter};
-use filetime_win::FileTime;
 use guid_win::Guid;
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, LPWSTR, ULONG};
 use winapi::shared::winerror::S_FALSE;
 use winapi::um::bits::{
-    IBackgroundCopyError, IBackgroundCopyFile, IBackgroundCopyJob, IBackgroundCopyManager,
+    IBackgroundCopyFile, IBackgroundCopyJob, IBackgroundCopyManager,
     IEnumBackgroundCopyFiles, IEnumBackgroundCopyJobs, BG_JOB_PRIORITY, BG_JOB_PRIORITY_FOREGROUND,
     BG_JOB_PRIORITY_HIGH, BG_JOB_PRIORITY_LOW, BG_JOB_PRIORITY_NORMAL, BG_JOB_PROXY_USAGE,
     BG_JOB_PROXY_USAGE_AUTODETECT, BG_JOB_PROXY_USAGE_NO_PROXY, BG_JOB_PROXY_USAGE_PRECONFIG,
-    BG_JOB_STATE_ERROR, BG_JOB_STATE_TRANSIENT_ERROR, BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE,
-    BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED, BG_SIZE_UNKNOWN,
+    BG_JOB_TYPE_DOWNLOAD, BG_NOTIFY_DISABLE,
+    BG_NOTIFY_JOB_ERROR, BG_NOTIFY_JOB_MODIFICATION, BG_NOTIFY_JOB_TRANSFERRED,
 };
 use winapi::um::bits2_5::{IBackgroundCopyJobHttpOptions, BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT};
 use winapi::um::bitsmsg::BG_E_NOT_FOUND;
@@ -91,13 +90,13 @@ pub struct BackgroundCopyManager(ComRef<IBackgroundCopyManager>);
 impl BackgroundCopyManager {
     /// Get access to the local BITS service.
     ///
-    /// # COM Initialization and Threading Model #
+    /// # COM Initialization and Threading Model
     ///
     /// This method uses a thread local variable to initialize COM with a multithreaded apartment
     /// model for this thread, and leaves it this way until the thread local is dropped.
     /// If the thread was in a single-threaded apartment, `connect()` will fail gracefully.
     ///
-    /// # Safety #
+    /// # Safety
     ///
     /// If there are mismatched `CoUninitialize` calls on this thread which lead to COM shutting
     /// down before this thread ends, unsafe behavior may result.
@@ -426,85 +425,11 @@ impl BitsJob {
         }
     }
 
-    /// Collect the current status of the job, including errors.
     pub fn get_status(&self) -> Result<BitsJobStatus> {
-        let mut state = 0;
-        let mut progress = unsafe { mem::zeroed() };
-        let mut error_count = 0;
-        let mut times = unsafe { mem::zeroed() };
-
-        unsafe {
-            com_call!(self.0, IBackgroundCopyJob::GetState(&mut state))?;
-            com_call!(self.0, IBackgroundCopyJob::GetProgress(&mut progress))?;
-            com_call!(self.0, IBackgroundCopyJob::GetErrorCount(&mut error_count))?;
-            com_call!(self.0, IBackgroundCopyJob::GetTimes(&mut times))?;
-        }
-
-        Ok(BitsJobStatus {
-            state: BitsJobState::from(state),
-            progress: BitsJobProgress {
-                total_bytes: if progress.BytesTotal == BG_SIZE_UNKNOWN {
-                    None
-                } else {
-                    Some(progress.BytesTotal)
-                },
-                transferred_bytes: progress.BytesTransferred,
-                total_files: progress.FilesTotal,
-                transferred_files: progress.FilesTransferred,
-            },
-            error_count,
-            error: if state == BG_JOB_STATE_ERROR || state == BG_JOB_STATE_TRANSIENT_ERROR {
-                let error_obj =
-                    unsafe { com_call_getter!(|e| self.0, IBackgroundCopyJob::GetError(e)) }?;
-
-                Some(BitsJob::get_error(error_obj)?)
-            } else {
-                None
-            },
-            times: BitsJobTimes {
-                creation: FileTime(times.CreationTime),
-                modification: FileTime(times.ModificationTime),
-                transfer_completion: if times.TransferCompletionTime.dwLowDateTime == 0
-                    && times.TransferCompletionTime.dwHighDateTime == 0
-                {
-                    None
-                } else {
-                    Some(FileTime(times.TransferCompletionTime))
-                },
-            },
-        })
+        BitsJobStatus::for_job(&self.0)
     }
 
-    fn get_error(error_obj: ComRef<IBackgroundCopyError>) -> Result<BitsJobError> {
-        let mut context = 0;
-        let mut hresult = 0;
-        unsafe {
-            com_call!(
-                error_obj,
-                IBackgroundCopyError::GetError(&mut context, &mut hresult)
-            )?;
-
-            let language_id = DWORD::from(LANGIDFROMLCID(GetThreadLocale()));
-
-            Ok(BitsJobError {
-                context: BitsErrorContext::from(context),
-                context_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
-                    |desc| error_obj,
-                    IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
-                )? as LPWSTR)
-                .to_string_lossy()
-                .into_owned(),
-                error: hresult,
-                error_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
-                    |desc| error_obj,
-                    IBackgroundCopyError::GetErrorDescription(language_id, desc)
-                )? as LPWSTR)
-                .to_string_lossy()
-                .into_owned(),
-            })
-        }
-    }
-
+    /// Collect the current status of the job, including errors.
     unsafe fn set_notify_interface(&self, interface: *mut IUnknown) -> Result<()> {
         com_call!(self.0, IBackgroundCopyJob::SetNotifyInterface(interface))?;
         Ok(())
@@ -535,6 +460,7 @@ impl BitsFile {
 #[cfg(test)]
 mod test {
     use super::BackgroundCopyManager;
+    use super::status::BitsJobState;
     use std::ffi::OsString;
     use std::mem;
 
@@ -577,5 +503,20 @@ mod test {
             .find_job_by_guid_and_name(&guid, &name)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_status_change() {
+        let bcm = BackgroundCopyManager::connect().unwrap();
+        let name = OsString::from("bits test job");
+
+        let mut job = bcm.create_job(&name).unwrap();
+
+        assert!(job.get_status().unwrap().state == BitsJobState::Suspended);
+
+        job.cancel().unwrap();
+
+        assert!(job.get_status().unwrap().state == BitsJobState::Cancelled);
     }
 }

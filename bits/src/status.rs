@@ -6,9 +6,20 @@
 
 //! Data types for reporting a job's status
 
+use std::ffi::OsString;
+use std::mem;
+
+use comedy::{com_call, com_call_getter, com_call_taskmem_getter, ResultExt};
+use comedy::com::ComRef;
 use filetime_win::FileTime;
-use winapi::shared::winerror::HRESULT;
-use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE};
+use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, LPWSTR};
+use winapi::shared::minwindef::DWORD;
+use winapi::um::bits::{BG_ERROR_CONTEXT, BG_JOB_STATE, BG_SIZE_UNKNOWN, IBackgroundCopyJob, IBackgroundCopyError};
+use winapi::um::bitsmsg::BG_E_ERROR_INFORMATION_UNAVAILABLE;
+use winapi::um::winnls::GetThreadLocale;
+
+use ::Result;
+use wide::FromWidePtrNull;
 
 #[cfg(feature = "status_serde")]
 use serde_derive::{Deserialize, Serialize};
@@ -23,6 +34,65 @@ pub struct BitsJobStatus {
     pub times: BitsJobTimes,
 }
 
+impl BitsJobStatus {
+    pub fn for_job(job: &ComRef<IBackgroundCopyJob>) -> Result<BitsJobStatus> {
+        let error = unsafe { com_call_getter!(|e| job, IBackgroundCopyJob::GetError(e)) }
+            .map(Some)
+            .allow_err(BG_E_ERROR_INFORMATION_UNAVAILABLE as HRESULT, None)?;
+
+        BitsJobStatus::for_job_with_error(job, error.as_ref())
+    }
+
+    pub fn for_job_with_error(
+        job: &ComRef<IBackgroundCopyJob>,
+        error_obj: Option<&ComRef<IBackgroundCopyError>>,
+    ) -> Result<BitsJobStatus>
+    {
+        let mut state = 0;
+        let mut progress = unsafe { mem::zeroed() };
+        let mut error_count = 0;
+        let mut times = unsafe { mem::zeroed() };
+
+        unsafe {
+            com_call!(job, IBackgroundCopyJob::GetState(&mut state))?;
+            com_call!(job, IBackgroundCopyJob::GetProgress(&mut progress))?;
+            com_call!(job, IBackgroundCopyJob::GetErrorCount(&mut error_count))?;
+            com_call!(job, IBackgroundCopyJob::GetTimes(&mut times))?;
+        }
+
+        Ok(BitsJobStatus {
+            state: BitsJobState::from(state),
+            progress: BitsJobProgress {
+                total_bytes: if progress.BytesTotal == BG_SIZE_UNKNOWN {
+                    None
+                } else {
+                    Some(progress.BytesTotal)
+                },
+                transferred_bytes: progress.BytesTransferred,
+                total_files: progress.FilesTotal,
+                transferred_files: progress.FilesTransferred,
+            },
+            error_count,
+            error: if let Some(error_obj) = error_obj {
+                Some(BitsJobError::for_error(error_obj)?)
+            } else {
+                None
+            },
+            times: BitsJobTimes {
+                creation: FileTime(times.CreationTime),
+                modification: FileTime(times.ModificationTime),
+                transfer_completion: if times.TransferCompletionTime.dwLowDateTime == 0
+                    && times.TransferCompletionTime.dwHighDateTime == 0
+                {
+                    None
+                } else {
+                    Some(FileTime(times.TransferCompletionTime))
+                },
+            },
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "status_serde", derive(Serialize, Deserialize))]
 pub struct BitsJobError {
@@ -30,6 +100,38 @@ pub struct BitsJobError {
     pub context_str: String,
     pub error: HRESULT,
     pub error_str: String,
+}
+
+impl BitsJobError {
+    pub fn for_error(error_obj: &ComRef<IBackgroundCopyError>) -> Result<BitsJobError> {
+        let mut context = 0;
+        let mut hresult = 0;
+        unsafe {
+            com_call!(
+                error_obj,
+                IBackgroundCopyError::GetError(&mut context, &mut hresult)
+            )?;
+
+            let language_id = DWORD::from(LANGIDFROMLCID(GetThreadLocale()));
+
+            Ok(BitsJobError {
+                context: BitsErrorContext::from(context),
+                context_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
+                    |desc| error_obj,
+                    IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
+                )? as LPWSTR)
+                .to_string_lossy()
+                .into_owned(),
+                error: hresult,
+                error_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
+                    |desc| error_obj,
+                    IBackgroundCopyError::GetErrorDescription(language_id, desc)
+                )? as LPWSTR)
+                .to_string_lossy()
+                .into_owned(),
+            })
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

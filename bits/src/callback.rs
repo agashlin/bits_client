@@ -8,6 +8,7 @@ use std::panic::{catch_unwind, RefUnwindSafe};
 use std::sync::Mutex;
 
 use comedy::HResult;
+use comedy::com::ComRef;
 use guid_win::Guid;
 use winapi::ctypes::c_void;
 use winapi::shared::guiddef::REFIID;
@@ -31,10 +32,12 @@ use BitsJob;
 /// If the callback returns a non-success `HRESULT`, the notification may pass to other BITS
 /// mechanisms such as `IBackgroundCopyJob2::SetNotifyCmdLine`.
 pub type TransferredCallback =
-    (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
-pub type ErrorCallback = (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
+    (Fn(ComRef<IBackgroundCopyJob>) -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
+pub type ErrorCallback =
+    (Fn(ComRef<IBackgroundCopyJob>, ComRef<IBackgroundCopyError>)
+         -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
 pub type ModificationCallback =
-    (Fn() -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
+    (Fn(ComRef<IBackgroundCopyJob>, DWORD) -> Result<(), HRESULT>) + RefUnwindSafe + Send + Sync + 'static;
 
 #[repr(C)]
 pub struct BackgroundCopyCallback {
@@ -131,12 +134,15 @@ extern "system" fn release(raw_this: *mut IUnknown) -> ULONG {
 
 extern "system" fn transferred_stub(
     raw_this: *mut IBackgroundCopyCallback,
-    _job: *mut IBackgroundCopyJob,
+    job: *mut IBackgroundCopyJob,
 ) -> HRESULT {
     unsafe {
         let this = raw_this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).transferred_cb {
-            match catch_unwind(|| cb()) {
+            // In order to copy into a `ComRef` we must first `AddRef`.
+            (*job).AddRef();
+            let job = ComRef::from_raw(job);
+            match catch_unwind(|| cb(job)) {
                 Ok(Ok(())) => S_OK,
                 Ok(Err(hr)) => hr,
                 Err(_) => E_FAIL,
@@ -149,13 +155,17 @@ extern "system" fn transferred_stub(
 
 extern "system" fn error_stub(
     raw_this: *mut IBackgroundCopyCallback,
-    _job: *mut IBackgroundCopyJob,
-    _error: *mut IBackgroundCopyError,
+    job: *mut IBackgroundCopyJob,
+    error: *mut IBackgroundCopyError,
 ) -> HRESULT {
     unsafe {
         let this = raw_this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).error_cb {
-            match catch_unwind(|| cb()) {
+            (*job).AddRef();
+            let job = ComRef::from_raw(job);
+            (*error).AddRef();
+            let error = ComRef::from_raw(error);
+            match catch_unwind(|| cb(job, error)) {
                 Ok(Ok(())) => S_OK,
                 Ok(Err(hr)) => hr,
                 Err(_) => E_FAIL,
@@ -168,13 +178,15 @@ extern "system" fn error_stub(
 
 extern "system" fn modification_stub(
     raw_this: *mut IBackgroundCopyCallback,
-    _job: *mut IBackgroundCopyJob,
-    _reserved: DWORD,
+    job: *mut IBackgroundCopyJob,
+    reserved: DWORD,
 ) -> HRESULT {
     unsafe {
         let this = raw_this as *const BackgroundCopyCallback;
         if let Some(ref cb) = (*this).modification_cb {
-            match catch_unwind(|| cb()) {
+            (*job).AddRef();
+            let job = ComRef::from_raw(job);
+            match catch_unwind(|| cb(job, reserved)) {
                 Ok(Ok(())) => S_OK,
                 Ok(Err(hr)) => hr,
                 Err(_) => E_FAIL,

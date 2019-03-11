@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::cmp;
-use std::collections::{hash_map, HashMap};
+use std::collections::{hash_map, HashMap, VecDeque};
 use std::ffi;
 use std::path;
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -228,7 +228,7 @@ impl InProcessClient {
         use SetUpdateIntervalFailure::*;
 
         if let Some(sender) = self.get_monitor_control_sender(guid) {
-            sender.1.lock().unwrap().shutdown = true;
+            sender.1.lock().unwrap().notifications.push_back(NotificationMessage::Shutdown);
             sender.0.notify_all();
             Ok(())
         } else {
@@ -289,8 +289,15 @@ impl std::panic::RefUnwindSafe for InProcessMonitorControl {}
 
 struct InProcessMonitorVars {
     interval_millis: u32,
-    notified: bool,
     shutdown: bool,
+    notifications: VecDeque<NotificationMessage>,
+}
+
+enum NotificationMessage {
+    StatusTransferred(BitsJobStatus),
+    StatusError(BitsJobStatus),
+    ShutdownNormally,
+    ShutdownOnError(comedy::HResult),
 }
 
 impl InProcessMonitor {
@@ -304,16 +311,21 @@ impl InProcessMonitor {
             Condvar::new(),
             Mutex::new(InProcessMonitorVars {
                 interval_millis,
-                notified: false,
+                notifications: VecDeque::new(),
                 shutdown: false,
             }),
         ));
 
         let transferred_control = InProcessMonitorControl(Arc::downgrade(&vars));
-        let transferred_cb = Box::new(move || {
+        let transferred_cb = Box::new(move |job| {
             if let Some(control) = transferred_control.0.upgrade() {
                 if let Ok(mut vars) = control.1.lock() {
-                    vars.notified = true;
+                    vars.notifications.push_back(
+                        match BitsJobStatus::for_job(job) {
+                            Ok(status) => UpdateMessage::StatusTransferred(status),
+                            Err(e) => UpdateMessage::ShutdownOnError(e),
+                        }
+                    );
                     control.0.notify_all();
                     return Ok(());
                 }
@@ -322,10 +334,15 @@ impl InProcessMonitor {
         });
 
         let error_control = InProcessMonitorControl(Arc::downgrade(&vars));
-        let error_cb = Box::new(move || {
+        let error_cb = Box::new(move |job, error| {
             if let Some(control) = error_control.0.upgrade() {
                 if let Ok(mut vars) = control.1.lock() {
-                    vars.notified = true;
+                    vars.notifications.push_back(
+                        match BitsJobStatus::for_job_with_error(job, error) {
+                            Ok(status) => UpdateMessage::StatusError(status),
+                            Err(e) => UpdateMessage::ShutdownOnError(e),
+                        }
+                    )
                     control.0.notify_all();
                     return Ok(());
                 }
@@ -360,12 +377,23 @@ impl InProcessMonitor {
 
         let started = Instant::now();
 
-        {
+        fn get_bcm() -> Result<BackgroundCopyManager, HResultMessage> {
+            BackgroundCopyManager::connect()
+                .map_err(|e| {
+                    // Errors below can use the BCM to do `format_error()`, but this one just
+                    // gets the basic `comedy::HResult` treatment.
+                    HResultMessage {
+                        hr: e.code(),
+                        message: format!("{}", e),
+                    }
+                })
+        }
+
+        let notification = {
             let mut s = self.vars.1.lock().unwrap();
             loop {
                 if s.shutdown {
                     // Disconnected, immediately return error.
-                    // Note: Shutdown takes priority over simultaneous notification.
                     return Err(Error::NotConnected);
                 }
 
@@ -377,22 +405,21 @@ impl InProcessMonitor {
                     return Err(Error::Timeout);
                 }
 
-                // Get the interval every pass through the loop, in case it has changed.
+                // Get the interval every pass through the loop, it may have changed.
                 let interval = Duration::from_millis(u64::from(s.interval_millis));
 
                 let wait_until = self.last_status_time.map(|last_status_time| {
                     cmp::min(last_status_time + interval, started + timeout)
                 });
 
-                if s.notified {
+                if let Some(notification) = s.notifications.pop_front {
                     // Notified, exit loop to get status.
-                    s.notified = false;
-                    break;
+                    break Some(notification);
                 }
 
                 if wait_until.is_none() {
                     // First status report, no waiting, exit loop to get status.
-                    break;
+                    break None;
                 }
 
                 let wait_until = wait_until.unwrap();
@@ -400,7 +427,7 @@ impl InProcessMonitor {
 
                 if wait_until <= wait_start {
                     // Status report due, exit loop to get status.
-                    break;
+                    break None;
                 }
 
                 // Wait.
@@ -414,52 +441,58 @@ impl InProcessMonitor {
 
                 // Mutex re-acquired, loop.
             }
-        }
-
-        // No error yet, start getting status now.
-        self.last_status_time = Some(Instant::now());
-
-        let bcm = match BackgroundCopyManager::connect() {
-            Ok(bcm) => bcm,
-            Err(e) => {
-                // On any error, disconnect.
-                self.vars.1.lock().unwrap().shutdown = true;
-
-                // Errors below can use the BCM to do `format_error()`, but this one just gets the
-                // basic `comedy::HResult` treatment.
-                return Ok(Err(HResultMessage {
-                    hr: e.code(),
-                    message: format!("{}", e),
-                }));
-            }
         };
 
-        Ok((|| {
-            let mut job = bcm.get_job_by_guid(&self.guid)?;
+        self.last_status_time = Some(Instant::now());
 
-            let status = job.get_status()?;
-            let url = job.get_first_file()?.get_remote_name()?;
-
-            Ok(JobStatus {
-                state: status.state,
-                progress: status.progress,
-                error_count: status.error_count,
-                error: status.error.map(|e| JobError {
-                    context: e.context,
-                    context_str: e.context_str,
-                    error: HResultMessage {
-                        hr: e.error,
-                        message: e.error_str,
-                    },
+        let status = match notification {
+            Some(note) => match note {
+                StatusTransferred(status) => Ok(status),
+                StatusError(status) => Ok(BitsJobStatus {
+                    state: BitsJobState::Error,
+                    .. status
                 }),
-                times: status.times,
-                url: if self.last_url.is_some() && *self.last_url.as_ref().unwrap() == url {
-                    None
-                } else {
-                    self.last_url = Some(url);
-                    self.last_url.clone()
-                },
-            })
+                ShutdownOnError(e) => {
+                    self.vars.1.lock().unwrap().shutdown = true;
+                    self.vars.0.notify_all();
+
+                    return Ok(get_bcm().and_then(|bcm| Err(format_error(&bcm, e))));
+                }
+                ShutdownNormally => {
+                    self.vars.1.lock().unwrap().shutdown = true;
+                    self.vars.0.notify_all();
+
+                    return Err(Error::NotConnected);
+                }
+            }
+            None => {
+                get_bcm().and_then(|bcm| {
+                    let mut job = bcm.get_job_by_guid(&self.guid)?;
+
+                    let status = job.get_status()?;
+                    let url = job.get_first_file()?.get_remote_name()?;
+                });
+
+                Ok(JobStatus {
+                    state: status.state,
+                    progress: status.progress,
+                    error_count: status.error_count,
+                    error: status.error.map(|e| JobError {
+                        context: e.context,
+                        context_str: e.context_str,
+                        error: HResultMessage {
+                            hr: e.error,
+                            message: e.error_str,
+                        },
+                    }),
+                    times: status.times,
+                    url: if self.last_url.is_some() && *self.last_url.as_ref().unwrap() == url {
+                        None
+                    } else {
+                        self.last_url = Some(url);
+                        self.last_url.clone()
+                    },
+                })
         })()
         .map_err(|e| {
             // On any error, disconnect.
@@ -467,6 +500,9 @@ impl InProcessMonitor {
             format_error(&bcm, e)
         }))
     }
+}
+
+fn job_status(status: BitsJobStatus) -> {
 }
 
 #[cfg(test)]
