@@ -250,7 +250,6 @@ fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> MockH
 macro_rules! test {
     (fn $name:ident($param:ident : &str, $tmpdir:ident : &TempDir) $body:block) => {
         #[test]
-        #[ignore]
         fn $name() {
             let $param = stringify!($name);
             let $tmpdir = &TempDir::new($param).unwrap();
