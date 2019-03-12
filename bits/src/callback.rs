@@ -5,7 +5,7 @@
 // except according to those terms.
 
 use std::panic::{catch_unwind, RefUnwindSafe};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use comedy::HResult;
 use guid_win::Guid;
@@ -38,8 +38,9 @@ pub type ModificationCallback =
 
 #[repr(C)]
 pub struct BackgroundCopyCallback {
+    // Everything assumes that the interface vtable is the first member of this struct.
     interface: IBackgroundCopyCallback,
-    rc: Mutex<ULONG>,
+    rc: AtomicUsize,
     transferred_cb: Option<Box<TransferredCallback>>,
     error_cb: Option<Box<ErrorCallback>>,
     modification_cb: Option<Box<ModificationCallback>>,
@@ -58,7 +59,7 @@ impl BackgroundCopyCallback {
     ) -> Result<(), HResult> {
         let cb = Box::new(BackgroundCopyCallback {
             interface: IBackgroundCopyCallback { lpVtbl: &VTBL },
-            rc: Mutex::new(1),
+            rc: AtomicUsize::new(1),
             transferred_cb,
             error_cb,
             modification_cb,
@@ -82,11 +83,16 @@ extern "system" fn query_interface(
     obj: *mut *mut c_void,
 ) -> HRESULT {
     unsafe {
+        // `IBackgroundCopyCallback` is the first (currently only) interface on the
+        // `BackgroundCopyCallback` object, so we can return `this` either as
+        // `IUnknown` or `IBackgroundCopyCallback`.
         if Guid(*riid) == Guid(IUnknown::uuidof())
             || Guid(*riid) == Guid(IBackgroundCopyCallback::uuidof())
         {
             addref(this);
-            *obj = this as *mut c_void;
+            // Cast first to `IBackgroundCopyCallback` to be clear which `IUnknown`
+            // we are pointing at.
+            *obj = this as *mut IBackgroundCopyCallback as *mut c_void;
             NOERROR
         } else {
             E_NOINTERFACE
@@ -96,15 +102,12 @@ extern "system" fn query_interface(
 
 extern "system" fn addref(raw_this: *mut IUnknown) -> ULONG {
     unsafe {
-        // Forge a ref based on `raw_this`.
         let this = raw_this as *const BackgroundCopyCallback;
 
-        // Justification for unwrap(): `rc` is only locked here and in `release()` below,
-        // these can't panic while the `MutexGuard` is in scope, so the `Mutex` will never be
-        // poisoned, so `lock()` will never return an error.
-        let mut rc = (*this).rc.lock().unwrap();
-        *rc += 1;
-        *rc
+        // Forge a reference for just this statement.
+        let old_rc = (*this).rc.fetch_add(1, Ordering::SeqCst);
+        assert!(old_rc != 0);
+        (old_rc + 1) as ULONG
     }
 }
 
@@ -113,16 +116,19 @@ extern "system" fn release(raw_this: *mut IUnknown) -> ULONG {
         {
             let this = raw_this as *const BackgroundCopyCallback;
 
-            let mut rc = (*this).rc.lock().unwrap();
-            *rc -= 1;
+            // Forge a reference for just this statement.
+            let old_rc = (*this).rc.fetch_sub(1, Ordering::SeqCst);
+            assert!(old_rc != 0);
 
-            if *rc > 0 {
-                return *rc;
+            let rc = old_rc - 1;
+            if rc > 0 {
+                return rc as ULONG;
             }
-        };
+        }
 
-        // rc will have been 0 for us to get here, and we're out of scope of the uses above, so
-        // there should be no references besides `raw_this`. re-Box and to drop immediately.
+        // rc will have been 0 for us to get here, and we're out of scope of the reference above,
+        // so there should be no references or pointers left (besides `this`).
+        // Re-Box and to drop immediately.
         let _ = Box::from_raw(raw_this as *mut BackgroundCopyCallback);
 
         0
@@ -135,6 +141,7 @@ extern "system" fn transferred_stub(
 ) -> HRESULT {
     unsafe {
         let this = raw_this as *const BackgroundCopyCallback;
+        // Forge a reference just for this statement.
         if let Some(ref cb) = (*this).transferred_cb {
             match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
@@ -154,6 +161,7 @@ extern "system" fn error_stub(
 ) -> HRESULT {
     unsafe {
         let this = raw_this as *const BackgroundCopyCallback;
+        // Forge a reference just for this statement.
         if let Some(ref cb) = (*this).error_cb {
             match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
@@ -173,6 +181,7 @@ extern "system" fn modification_stub(
 ) -> HRESULT {
     unsafe {
         let this = raw_this as *const BackgroundCopyCallback;
+        // Forge a reference just for this statement.
         if let Some(ref cb) = (*this).modification_cb {
             match catch_unwind(|| cb()) {
                 Ok(Ok(())) => S_OK,
