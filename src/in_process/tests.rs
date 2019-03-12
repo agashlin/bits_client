@@ -8,10 +8,6 @@
 // It may make sense to restrict how many tests can run at once. BITS is only supposed to support
 // four simultaneous notifications per user, it is not impossible that this test suite could
 // exceed that.
-//
-// TODO
-// The timings used for these tests are too sensitive, timeouts should be much longer and the
-// expected delay should be quite long.
 
 #![cfg(test)]
 extern crate bits;
@@ -23,11 +19,10 @@ extern crate tempdir;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::mem;
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::panic;
-use std::sync::Mutex;
-use std::thread;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use self::{
@@ -42,14 +37,10 @@ use super::{
     BitsProxyUsage, InProcessClient, StartJobSuccess,
 };
 
-static SERVER_ADDRESS: &'static str = "127.0.0.1";
+static SERVER_ADDRESS: [u8; 4] = [127, 0, 0, 1];
 
 lazy_static! {
     static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
-}
-
-fn format_server_url(port: u16, name: &str) -> OsString {
-    format!("http://{}:{}/{}", SERVER_ADDRESS, port, name).into()
 }
 
 fn format_job_name(name: &str) -> OsString {
@@ -69,29 +60,63 @@ fn cancel_jobs(name: &OsStr) {
         .unwrap();
 }
 
-fn close_mock_http_server(port: u16) {
-    let mut connection = TcpStream::connect((SERVER_ADDRESS, port)).unwrap();
-    connection.write(b"SHUTDOWN").unwrap();
-    connection.flush().unwrap();
-    let mut buf = [0; 2];
-    connection.read(&mut buf[..]).unwrap();
-
-    // ensure that the port is available again
-    let _ = TcpListener::bind((SERVER_ADDRESS, port)).unwrap();
-}
-
 struct HttpServerResponses {
     body: Box<[u8]>,
     delay: u64,
     //error: Box<[u8]>,
 }
 
-fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> u16 {
+struct MockHttpServerHandle {
+    port: u16,
+    join: Option<JoinHandle<Result<(), ()>>>,
+    shutdown: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl MockHttpServerHandle {
+    fn shutdown(&mut self) {
+        if self.join.is_none() {
+            return;
+        }
+
+        {
+            let &(ref lock, ref cvar) = &*self.shutdown;
+            let mut shutdown = lock.lock().unwrap();
+
+            if !*shutdown {
+                *shutdown = true;
+                cvar.notify_all();
+            }
+        }
+        // Wake up the server from `accept()`. Will fail if the server wasn't listening.
+        let _ = TcpStream::connect_timeout(
+            &(SERVER_ADDRESS, self.port).into(),
+            Duration::from_millis(10_000),
+        );
+
+        match self.join.take().unwrap().join() {
+            Ok(_) => {}
+            Err(p) => panic::resume_unwind(p),
+        }
+    }
+
+    fn format_url(&self, name: &str) -> OsString {
+        format!(
+            "http://{}/{}",
+            SocketAddr::from((SERVER_ADDRESS, self.port)),
+            name
+        )
+        .into()
+    }
+}
+
+fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> MockHttpServerHandle {
     let mut bind_retries = 10;
+    let shutdown = Arc::new((Mutex::new(false), Condvar::new()));
+    let caller_shutdown = shutdown.clone();
 
     let (listener, port) = loop {
-        let port = thread_rng().gen_range(1024, 0x10000u32) as u16;
-        match TcpListener::bind((SERVER_ADDRESS, port)) {
+        let port = thread_rng().gen_range(1024, 0x1_0000u32) as u16;
+        match TcpListener::bind(SocketAddr::from((SERVER_ADDRESS, port))) {
             Ok(listener) => {
                 break (listener, port);
             }
@@ -105,18 +130,45 @@ fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> u16 {
         }
     };
 
-    let _join = thread::Builder::new()
+    let join = thread::Builder::new()
         .name(format!("mock_http_server {}", name))
         .spawn(move || {
+            // returns Err(()) if server should shut down immediately
+            fn check_shutdown(shutdown: &Arc<(Mutex<bool>, Condvar)>) -> Result<(), ()> {
+                if *shutdown.0.lock().unwrap() {
+                    Err(())
+                } else {
+                    Ok(())
+                }
+            }
+            fn sleep(shutdown: &Arc<(Mutex<bool>, Condvar)>, delay_millis: u64) -> Result<(), ()> {
+                let sleep_start = Instant::now();
+                let sleep_end = sleep_start + Duration::from_millis(delay_millis);
+
+                let (ref lock, ref cvar) = **shutdown;
+                let mut shutdown_requested = lock.lock().unwrap();
+                loop {
+                    if *shutdown_requested {
+                        return Err(());
+                    }
+
+                    let before_wait = Instant::now();
+                    if before_wait >= sleep_end {
+                        return Ok(());
+                    }
+                    let wait_dur = sleep_end - before_wait;
+                    shutdown_requested = cvar.wait_timeout(shutdown_requested, wait_dur).unwrap().0;
+                }
+            }
+
             let error_404 = Regex::new(r"^((GET)|(HEAD)) [[:print:]]*/error_404 ").unwrap();
             let error_500 = Regex::new(r"^((GET)|(HEAD)) [[:print:]]*/error_500 ").unwrap();
 
-            let mut shut_down = false;
             loop {
                 let (mut socket, _addr) = listener.accept().expect("accept should succeed");
 
                 socket
-                    .set_read_timeout(Some(Duration::from_millis(1000)))
+                    .set_read_timeout(Some(Duration::from_millis(10_000)))
                     .unwrap();
                 let mut s = Vec::new();
                 for b in Read::by_ref(&mut socket).bytes() {
@@ -126,28 +178,19 @@ fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> u16 {
                     }
                     let b = b.unwrap();
                     s.push(b);
-                    if s.starts_with(b"SHUTDOWN") {
-                        shut_down = true;
-                        break;
-                    }
                     if s.ends_with(b"\r\n\r\n") {
                         break;
                     }
+                    check_shutdown(&shutdown)?;
                 }
 
                 // request received
 
-                if shut_down {
-                    mem::drop(listener);
-                    if let Err(e) = socket.write(b"OK").and_then(|_| socket.flush()) {
-                        eprintln!("error writing shutdown response {:?}", e);
-                    }
-                    return;
-                }
+                check_shutdown(&shutdown)?;
 
                 // Special error URIs
                 if error_404.is_match(&s) {
-                    thread::sleep(Duration::from_millis(responses.delay));
+                    sleep(&shutdown, responses.delay)?;
                     let result = socket
                         .write(b"HTTP/1.1 404 Not Found\r\n\r\n")
                         .and_then(|_| socket.flush());
@@ -158,7 +201,7 @@ fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> u16 {
                 }
 
                 if error_500.is_match(&s) {
-                    thread::sleep(Duration::from_millis(responses.delay));
+                    sleep(&shutdown, responses.delay)?;
                     let result = socket
                         .write(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")
                         .and_then(|_| socket.flush());
@@ -186,7 +229,7 @@ fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> u16 {
                 }
 
                 if s.starts_with(b"GET") {
-                    thread::sleep(Duration::from_millis(responses.delay));
+                    sleep(&shutdown, responses.delay)?;
                     let result = socket.write(&responses.body).and_then(|_| socket.flush());
                     if let Err(e) = result {
                         eprintln!("error writing content {:?}", e);
@@ -196,7 +239,11 @@ fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> u16 {
             }
         });
 
-    port
+    MockHttpServerHandle {
+        port,
+        join: Some(join.unwrap()),
+        shutdown: caller_shutdown,
+    }
 }
 
 // Test wrapper to ensure jobs are canceled, set up name strings
@@ -221,19 +268,19 @@ macro_rules! test {
 
 test! {
     fn start_monitor_and_cancel(name: &str, tmp_dir: &TempDir) {
-        let port = mock_http_server(name, HttpServerResponses {
+        let mut server = mock_http_server(name, HttpServerResponses {
             body: name.to_owned().into_boxed_str().into_boxed_bytes(),
-            delay: 1000,
+            delay: 10_000,
         });
 
         let mut client = InProcessClient::new(format_job_name(name), tmp_dir.path().into()).unwrap();
 
-        let interval = 10 * 1000;
-        let timeout = 60 * 1000;
+        let interval = 10_000;
+        let timeout = 10_000;
 
         let (StartJobSuccess {guid}, mut monitor) =
             client.start_job(
-                format_server_url(port, name),
+                server.format_url(name),
                 name.into(),
                 BitsProxyUsage::Preconfig,
                 interval
@@ -252,17 +299,15 @@ test! {
         monitor.get_status(timeout).expect("should initially be ok").unwrap();
 
         // ~250ms the cancel should cause an immediate disconnect (otherwise we wouldn't get
-        // an update until 1s when the transfer completes or 10s when the interval expires)
+        // an update until 10s when the transfer completes or the interval expires)
         match monitor.get_status(timeout) {
             Err(Error::NotConnected) => {},
             Ok(r) => panic!("unexpected success from get_status() {:?}", r),
             Err(e) => panic!("unexpected failure from get_status() {:?}", e),
         }
-        assert!(start.elapsed() < Duration::from_millis(500));
+        assert!(start.elapsed() < Duration::from_millis(9_000));
 
-        // This will take ~750ms until BITS's HTTP request completes and this shutdown request
-        // can be serviced.
-        close_mock_http_server(port);
+        server.shutdown();
     }
 }
 
@@ -270,7 +315,7 @@ test! {
     fn start_monitor_and_complete(name: &str, tmp_dir: &TempDir) {
         let file_path = tmp_dir.path().join(name);
 
-        let port = mock_http_server(name, HttpServerResponses {
+        let mut server = mock_http_server(name, HttpServerResponses {
             body: name.to_owned().into_boxed_str().into_boxed_bytes(),
             delay: 500,
         });
@@ -278,10 +323,10 @@ test! {
         let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
 
         let interval = 100;
-        let timeout = 1000;
+        let timeout = 10_000;
 
         let (StartJobSuccess {guid}, mut monitor) =
-            client.start_job(format_server_url(port, name).into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+            client.start_job(server.format_url(name), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
 
         // get status reports until transfer finishes (~500ms)
         let mut completed = false;
@@ -312,7 +357,6 @@ test! {
             }
         }
 
-        close_mock_http_server(port);
 
         // Verify file contents
         let result = panic::catch_unwind(|| {
@@ -322,45 +366,48 @@ test! {
             assert_eq!(v, name.as_bytes());
         });
 
-        fs::remove_file(file_path).unwrap();
+        let _ = fs::remove_file(file_path);
 
         if let Err(e) = result {
             panic::resume_unwind(e);
         }
+
+        // Save this for last to ensure the file is removed.
+        server.shutdown();
     }
 }
 
 test! {
-    fn async_notification(name: &str, tmp_dir: &TempDir) {
-        let port = mock_http_server(name, HttpServerResponses {
+    fn async_transferred_notification(name: &str, tmp_dir: &TempDir) {
+        let mut server = mock_http_server(name, HttpServerResponses {
             body: name.to_owned().into_boxed_str().into_boxed_bytes(),
             delay: 250,
         });
 
         let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
 
-        let interval = 10 * 1000;
-        let timeout = 1000;
+        let interval = 60_000;
+        let timeout = 10_000;
 
         let (_, mut monitor) =
-            client.start_job(format_server_url(port, name).into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+            client.start_job(server.format_url(name), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
 
         // Start the timer now, the initial job creation may be delayed by BITS service startup.
         let start = Instant::now();
 
         // First immediate report
         monitor.get_status(timeout).expect("should initially be ok").unwrap();
-        assert!(start.elapsed() < Duration::from_millis(100));
 
         // Transferred notification should come when the job completes in ~250 ms, otherwise we
         // will be stuck until timeout.
         let status = monitor.get_status(timeout).expect("should get status update").unwrap();
-        assert!(start.elapsed() < Duration::from_millis(1000));
+        assert!(start.elapsed() < Duration::from_millis(9_000));
         assert_eq!(status.state, BitsJobState::Transferred);
 
-        monitor.get_status(timeout).expect_err("should be disconnected");
+        let short_timeout = 500;
+        monitor.get_status(short_timeout).expect_err("should be disconnected");
 
-        close_mock_http_server(port);
+        server.shutdown();
 
         // job will be cancelled by macro
     }
@@ -368,18 +415,18 @@ test! {
 
 test! {
     fn change_interval(name: &str, tmp_dir: &TempDir) {
-        let port = mock_http_server(name, HttpServerResponses {
+        let mut server = mock_http_server(name, HttpServerResponses {
             body: name.to_owned().into_boxed_str().into_boxed_bytes(),
             delay: 1000,
         });
 
         let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
 
-        let interval = 10 * 1000;
-        let timeout = 1000;
+        let interval = 60_000;
+        let timeout = 10_000;
 
         let (StartJobSuccess { guid }, mut monitor) =
-            client.start_job(format_server_url(port, name).into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+            client.start_job(server.format_url(name), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
 
         let start = Instant::now();
 
@@ -392,47 +439,47 @@ test! {
 
         // First immediate report
         monitor.get_status(timeout).expect("should initially be ok").unwrap();
-        assert!(start.elapsed() < Duration::from_millis(100));
 
-        // Next report should be rescheduled to 500ms by the spawned thread
+        // Next report should be rescheduled to 500ms by the spawned thread, otherwise no status
+        // until the original 10s interval.
         monitor.get_status(timeout).expect("expected second status").unwrap();
-        assert!(start.elapsed() < Duration::from_millis(750));
+        assert!(start.elapsed() < Duration::from_millis(9_000));
         assert!(start.elapsed() > Duration::from_millis(400));
 
-        close_mock_http_server(port);
+        server.shutdown();
 
         // job will be cancelled by macro
     }
 }
 
 test! {
-    fn permanent_error(name: &str, tmp_dir: &TempDir) {
-        let port = mock_http_server(name, HttpServerResponses {
+    fn async_error_notification(name: &str, tmp_dir: &TempDir) {
+        let mut server = mock_http_server(name, HttpServerResponses {
             body: name.to_owned().into_boxed_str().into_boxed_bytes(),
             delay: 100,
         });
 
         let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
 
-        let interval = 10 * 1000;
-        let timeout = 1000;
+        let interval = 60_000;
+        let timeout = 10_000;
 
         let (_, mut monitor) =
-            client.start_job(format_server_url(port, "error_404").into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+            client.start_job(server.format_url("error_404"), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
 
         // Start the timer now, the initial job creation may be delayed by BITS service startup.
         let start = Instant::now();
 
         // First immediate report
         monitor.get_status(timeout).expect("should initially be ok").unwrap();
-        assert!(start.elapsed() < Duration::from_millis(100));
 
-        // Error notification should come with HEAD response in 100ms.
+        // Error notification should come with HEAD response in 100ms, otherwise no status until
+        // 10s interval or timeout.
         let status = monitor.get_status(timeout).expect("should get status update").unwrap();
-        assert!(start.elapsed() < Duration::from_millis(1000));
+        assert!(start.elapsed() < Duration::from_millis(9_000));
         assert_eq!(status.state, BitsJobState::Error);
 
-        close_mock_http_server(port);
+        server.shutdown();
 
         // job will be cancelled by macro
     }
@@ -440,34 +487,32 @@ test! {
 
 test! {
     fn transient_error(name: &str, tmp_dir: &TempDir) {
-        let port = mock_http_server(name, HttpServerResponses {
+        let mut server = mock_http_server(name, HttpServerResponses {
             body: name.to_owned().into_boxed_str().into_boxed_bytes(),
             delay: 100,
         });
 
         let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
 
-        let interval = 1000;
-        let timeout = 10 * 1000;
+        let interval = 1_000;
+        let timeout = 10_000;
 
         let (_, mut monitor) =
-            client.start_job(format_server_url(port, "error_500").into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+            client.start_job(server.format_url("error_500"), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
 
         // Start the timer now, the initial job creation may be delayed by BITS service startup.
         let start = Instant::now();
 
         // First immediate report
         monitor.get_status(timeout).expect("should initially be ok").unwrap();
-        assert!(start.elapsed() < Duration::from_millis(100));
 
-        // Transient error notification should come when the job completes in ~250 ms, otherwise
-        // we will be stuck until timeout.
+        // Transient error notification should come when the interval expires in ~1s.
         let status = monitor.get_status(timeout).expect("should get status update").unwrap();
-        assert!(start.elapsed() > Duration::from_millis(800));
-        assert!(start.elapsed() < Duration::from_millis(2000));
+        assert!(start.elapsed() > Duration::from_millis(900));
+        assert!(start.elapsed() < Duration::from_millis(9_000));
         assert_eq!(status.state, BitsJobState::TransientError);
 
-        close_mock_http_server(port);
+        server.shutdown();
 
         // job will be cancelled by macro
     }
