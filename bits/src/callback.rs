@@ -106,7 +106,6 @@ extern "system" fn addref(raw_this: *mut IUnknown) -> ULONG {
 
         // Forge a reference for just this statement.
         let old_rc = (*this).rc.fetch_add(1, Ordering::SeqCst);
-        assert!(old_rc != 0);
         (old_rc + 1) as ULONG
     }
 }
@@ -118,7 +117,6 @@ extern "system" fn release(raw_this: *mut IUnknown) -> ULONG {
 
             // Forge a reference for just this statement.
             let old_rc = (*this).rc.fetch_sub(1, Ordering::SeqCst);
-            assert!(old_rc != 0);
 
             let rc = old_rc - 1;
             if rc > 0 {
