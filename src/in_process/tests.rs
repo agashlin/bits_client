@@ -17,6 +17,7 @@
 extern crate bits;
 extern crate lazy_static;
 extern crate rand;
+extern crate regex;
 extern crate tempdir;
 
 use std::ffi::{OsStr, OsString};
@@ -33,6 +34,7 @@ use self::{
     bits::BackgroundCopyManager,
     lazy_static::lazy_static,
     rand::{thread_rng, Rng},
+    regex::bytes::Regex,
     tempdir::TempDir,
 };
 use super::{
@@ -106,69 +108,89 @@ fn mock_http_server(name: &'static str, responses: HttpServerResponses) -> u16 {
     let _join = thread::Builder::new()
         .name(format!("mock_http_server {}", name))
         .spawn(move || {
+            let error_404 = Regex::new(r"^((GET)|(HEAD)) [[:print:]]*/error_404 ").unwrap();
+            let error_500 = Regex::new(r"^((GET)|(HEAD)) [[:print:]]*/error_500 ").unwrap();
+
             let mut shut_down = false;
             loop {
-                match listener.accept() {
-                    Ok((mut socket, _addr)) => {
-                        socket
-                            .set_read_timeout(Some(Duration::from_millis(1000)))
-                            .unwrap();
-                        let mut s = Vec::new();
-                        for b in Read::by_ref(&mut socket).bytes() {
-                            if b.is_err() {
-                                //eprintln!("read error {:?}", b);
-                                break;
-                            }
-                            let b = b.unwrap();
-                            s.push(b);
-                            if s.starts_with(b"SHUTDOWN") {
-                                shut_down = true;
-                                break;
-                            }
-                            if s.ends_with(&[13, 10, 13, 10]) {
-                                break;
-                            }
-                        }
+                let (mut socket, _addr) = listener.accept().expect("accept should succeed");
 
-                        if shut_down {
-                            mem::drop(listener);
-                            socket.write(b"OK").unwrap();
-                            return;
-                        }
-
-                        if s.starts_with(b"HEAD") || s.starts_with(b"GET") {
-                            let result = socket.write(
-                                format!(
-                                    "HTTP/1.1 200 OK\x0d\x0aContent-Length: {}\x0d\x0a\x0d\x0a",
-                                    responses.body.len()
-                                )
-                                .as_bytes(),
-                            );
-                            if let Err(_e) = result {
-                                //eprintln!("error writing header {:?}", _e);
-                                continue;
-                            }
-                        } else if s.starts_with(b"GET") {
-                            continue;
-                        }
-
-                        if s.starts_with(b"GET") {
-                            thread::sleep(Duration::from_millis(responses.delay));
-                            let result = socket.write(&responses.body);
-                            if let Err(_e) = result {
-                                //eprintln!("error writing content {:?}", _e);
-                                continue;
-                            }
-                        }
-
-                        if let Err(e) = socket.flush() {
-                            eprintln!("error flushing {:?}", e);
-                            continue;
-                        }
+                socket
+                    .set_read_timeout(Some(Duration::from_millis(1000)))
+                    .unwrap();
+                let mut s = Vec::new();
+                for b in Read::by_ref(&mut socket).bytes() {
+                    if b.is_err() {
+                        eprintln!("read error {:?}", b);
+                        break;
                     }
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        panic!(e);
+                    let b = b.unwrap();
+                    s.push(b);
+                    if s.starts_with(b"SHUTDOWN") {
+                        shut_down = true;
+                        break;
+                    }
+                    if s.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+
+                // request received
+
+                if shut_down {
+                    mem::drop(listener);
+                    if let Err(e) = socket.write(b"OK").and_then(|_| socket.flush()) {
+                        eprintln!("error writing shutdown response {:?}", e);
+                    }
+                    return;
+                }
+
+                // Special error URIs
+                if error_404.is_match(&s) {
+                    thread::sleep(Duration::from_millis(responses.delay));
+                    let result = socket
+                        .write(b"HTTP/1.1 404 Not Found\r\n\r\n")
+                        .and_then(|_| socket.flush());
+                    if let Err(e) = result {
+                        eprintln!("error writing 404 header {:?}", e);
+                    }
+                    continue;
+                }
+
+                if error_500.is_match(&s) {
+                    thread::sleep(Duration::from_millis(responses.delay));
+                    let result = socket
+                        .write(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")
+                        .and_then(|_| socket.flush());
+                    if let Err(e) = result {
+                        eprintln!("error writing 500 header {:?}", e);
+                    }
+                    continue;
+                }
+
+                // Response with a body.
+                if s.starts_with(b"HEAD") || s.starts_with(b"GET") {
+                    let result = socket
+                        .write(
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                                responses.body.len()
+                            )
+                            .as_bytes(),
+                        )
+                        .and_then(|_| socket.flush());
+                    if let Err(e) = result {
+                        eprintln!("error writing header {:?}", e);
+                        continue;
+                    }
+                }
+
+                if s.starts_with(b"GET") {
+                    thread::sleep(Duration::from_millis(responses.delay));
+                    let result = socket.write(&responses.body).and_then(|_| socket.flush());
+                    if let Err(e) = result {
+                        eprintln!("error writing content {:?}", e);
+                        continue;
                     }
                 }
             }
@@ -376,6 +398,74 @@ test! {
         monitor.get_status(timeout).expect("expected second status").unwrap();
         assert!(start.elapsed() < Duration::from_millis(750));
         assert!(start.elapsed() > Duration::from_millis(400));
+
+        close_mock_http_server(port);
+
+        // job will be cancelled by macro
+    }
+}
+
+test! {
+    fn permanent_error(name: &str, tmp_dir: &TempDir) {
+        let port = mock_http_server(name, HttpServerResponses {
+            body: name.to_owned().into_boxed_str().into_boxed_bytes(),
+            delay: 100,
+        });
+
+        let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
+
+        let interval = 10 * 1000;
+        let timeout = 1000;
+
+        let (_, mut monitor) =
+            client.start_job(format_server_url(port, "error_404").into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+
+        // Start the timer now, the initial job creation may be delayed by BITS service startup.
+        let start = Instant::now();
+
+        // First immediate report
+        monitor.get_status(timeout).expect("should initially be ok").unwrap();
+        assert!(start.elapsed() < Duration::from_millis(100));
+
+        // Error notification should come with HEAD response in 100ms.
+        let status = monitor.get_status(timeout).expect("should get status update").unwrap();
+        assert!(start.elapsed() < Duration::from_millis(1000));
+        assert_eq!(status.state, BitsJobState::Error);
+
+        close_mock_http_server(port);
+
+        // job will be cancelled by macro
+    }
+}
+
+test! {
+    fn transient_error(name: &str, tmp_dir: &TempDir) {
+        let port = mock_http_server(name, HttpServerResponses {
+            body: name.to_owned().into_boxed_str().into_boxed_bytes(),
+            delay: 100,
+        });
+
+        let mut client = InProcessClient::new(format_job_name(name), format_dir_prefix(tmp_dir)).unwrap();
+
+        let interval = 1000;
+        let timeout = 10 * 1000;
+
+        let (_, mut monitor) =
+            client.start_job(format_server_url(port, "error_500").into(), name.into(), BitsProxyUsage::Preconfig, interval).unwrap();
+
+        // Start the timer now, the initial job creation may be delayed by BITS service startup.
+        let start = Instant::now();
+
+        // First immediate report
+        monitor.get_status(timeout).expect("should initially be ok").unwrap();
+        assert!(start.elapsed() < Duration::from_millis(100));
+
+        // Transient error notification should come when the job completes in ~250 ms, otherwise
+        // we will be stuck until timeout.
+        let status = monitor.get_status(timeout).expect("should get status update").unwrap();
+        assert!(start.elapsed() > Duration::from_millis(800));
+        assert!(start.elapsed() < Duration::from_millis(2000));
+        assert_eq!(status.state, BitsJobState::TransientError);
 
         close_mock_http_server(port);
 
