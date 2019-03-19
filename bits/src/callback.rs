@@ -5,9 +5,10 @@
 // except according to those terms.
 
 use std::panic::{catch_unwind, RefUnwindSafe};
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use comedy::HResult;
+use comedy::{com::ComRef, HResult};
 use guid_win::Guid;
 use winapi::ctypes::c_void;
 use winapi::shared::guiddef::REFIID;
@@ -65,13 +66,13 @@ impl BackgroundCopyCallback {
             modification_cb,
         });
 
-        // Leak the callback, it has no owner until we need to drop it later.
-        let cb = Box::leak(cb) as *mut BackgroundCopyCallback as *mut IUnknown;
-
+        // Leak the callback, it has no Rust owner until we need to drop it later.
+        // The ComRef will Release when it goes out of scope.
         unsafe {
-            job.set_notify_interface(cb)?;
-            (*cb).Release();
-        };
+            let cb = ComRef::from_raw(NonNull::new_unchecked(Box::into_raw(cb) as *mut IUnknown));
+
+            job.set_notify_interface(cb.as_raw_ptr())?;
+        }
 
         Ok(())
     }
