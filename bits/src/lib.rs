@@ -32,7 +32,7 @@ use std::mem;
 use std::ptr;
 use std::result;
 
-use comedy::com::{create_instance_local_server, ComRef, INIT_MTA};
+use comedy::com::{create_instance_local_server, CoTaskMem, ComRef, INIT_MTA};
 use comedy::error::{HResult, ResultExt};
 use comedy::{com_call, com_call_getter, com_call_taskmem_getter};
 use filetime_win::FileTime;
@@ -215,17 +215,18 @@ impl BackgroundCopyManager {
         unsafe {
             let language_id = DWORD::from(LANGIDFROMLCID(GetThreadLocale()));
 
-            Ok(OsString::from_wide_ptr_null(
-                com_call_taskmem_getter!(
-                    |desc| self.0,
-                    IBackgroundCopyManager::GetErrorDescription(hr, language_id, desc)
-                )?
-                .as_raw_ptr(),
-            )
-            .to_string_lossy()
-            .into_owned())
+            Ok(taskmem_into_lossy_string(com_call_taskmem_getter!(
+                |desc| self.0,
+                IBackgroundCopyManager::GetErrorDescription(hr, language_id, desc)
+            )?))
         }
     }
+}
+
+unsafe fn taskmem_into_lossy_string(taskmem: CoTaskMem<u16>) -> String {
+    OsString::from_wide_ptr_null(taskmem.as_raw_ptr())
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn job_name_eq(job: &ComRef<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
@@ -491,25 +492,15 @@ impl BitsJob {
 
             Ok(BitsJobError {
                 context: BitsErrorContext::from(context),
-                context_str: OsString::from_wide_ptr_null(
-                    com_call_taskmem_getter!(
-                        |desc| error_obj,
-                        IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
-                    )?
-                    .as_raw_ptr(),
-                )
-                .to_string_lossy()
-                .into_owned(),
+                context_str: taskmem_into_lossy_string(com_call_taskmem_getter!(
+                    |desc| error_obj,
+                    IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
+                )?),
                 error: hresult,
-                error_str: OsString::from_wide_ptr_null(
-                    com_call_taskmem_getter!(
-                        |desc| error_obj,
-                        IBackgroundCopyError::GetErrorDescription(language_id, desc)
-                    )?
-                    .as_raw_ptr(),
-                )
-                .to_string_lossy()
-                .into_owned(),
+                error_str: taskmem_into_lossy_string(com_call_taskmem_getter!(
+                    |desc| error_obj,
+                    IBackgroundCopyError::GetErrorDescription(language_id, desc)
+                )?),
             })
         }
     }
