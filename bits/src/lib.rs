@@ -38,7 +38,7 @@ use comedy::{com_call, com_call_getter, com_call_taskmem_getter};
 use filetime_win::FileTime;
 use guid_win::Guid;
 use winapi::shared::minwindef::DWORD;
-use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, LPWSTR, ULONG};
+use winapi::shared::ntdef::{HRESULT, LANGIDFROMLCID, ULONG};
 use winapi::shared::winerror::S_FALSE;
 use winapi::um::bits::{
     IBackgroundCopyError, IBackgroundCopyFile, IBackgroundCopyJob, IBackgroundCopyManager,
@@ -215,10 +215,13 @@ impl BackgroundCopyManager {
         unsafe {
             let language_id = DWORD::from(LANGIDFROMLCID(GetThreadLocale()));
 
-            Ok(OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
-                |desc| self.0,
-                IBackgroundCopyManager::GetErrorDescription(hr, language_id, desc)
-            )? as LPWSTR)
+            Ok(OsString::from_wide_ptr_null(
+                com_call_taskmem_getter!(
+                    |desc| self.0,
+                    IBackgroundCopyManager::GetErrorDescription(hr, language_id, desc)
+                )?
+                .as_raw_ptr(),
+            )
             .to_string_lossy()
             .into_owned())
         }
@@ -227,10 +230,10 @@ impl BackgroundCopyManager {
 
 fn job_name_eq(job: &ComRef<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
     let job_name = unsafe {
-        OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
-            |name| job,
-            IBackgroundCopyJob::GetDisplayName(name)
-        )? as LPWSTR)
+        OsString::from_wide_ptr_null(
+            com_call_taskmem_getter!(|name| job, IBackgroundCopyJob::GetDisplayName(name))?
+                .as_raw_ptr(),
+        )
     };
 
     Ok(job_name == match_name)
@@ -347,7 +350,7 @@ impl BitsJob {
     pub fn set_redirect_report(&mut self) -> Result<()> {
         unsafe {
             com_call!(
-                comedy::com::cast(&self.0)?,
+                self.0.cast()?,
                 IBackgroundCopyJobHttpOptions::SetSecurityFlags(
                     BG_HTTP_REDIRECT_POLICY_ALLOW_REPORT
                 )
@@ -488,17 +491,23 @@ impl BitsJob {
 
             Ok(BitsJobError {
                 context: BitsErrorContext::from(context),
-                context_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
-                    |desc| error_obj,
-                    IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
-                )? as LPWSTR)
+                context_str: OsString::from_wide_ptr_null(
+                    com_call_taskmem_getter!(
+                        |desc| error_obj,
+                        IBackgroundCopyError::GetErrorContextDescription(language_id, desc)
+                    )?
+                    .as_raw_ptr(),
+                )
                 .to_string_lossy()
                 .into_owned(),
                 error: hresult,
-                error_str: OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
-                    |desc| error_obj,
-                    IBackgroundCopyError::GetErrorDescription(language_id, desc)
-                )? as LPWSTR)
+                error_str: OsString::from_wide_ptr_null(
+                    com_call_taskmem_getter!(
+                        |desc| error_obj,
+                        IBackgroundCopyError::GetErrorDescription(language_id, desc)
+                    )?
+                    .as_raw_ptr(),
+                )
                 .to_string_lossy()
                 .into_owned(),
             })
@@ -524,10 +533,10 @@ impl BitsFile {
     /// updated as HTTP redirects are processed.
     pub fn get_remote_name(&self) -> Result<OsString> {
         unsafe {
-            Ok(OsString::from_wide_ptr_null(*com_call_taskmem_getter!(
-                |name| self.0,
-                IBackgroundCopyFile::GetRemoteName(name)
-            )? as LPWSTR))
+            Ok(OsString::from_wide_ptr_null(
+                com_call_taskmem_getter!(|name| self.0, IBackgroundCopyFile::GetRemoteName(name))?
+                    .as_raw_ptr(),
+            ))
         }
     }
 }
