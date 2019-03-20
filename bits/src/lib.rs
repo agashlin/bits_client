@@ -29,6 +29,7 @@ mod wide;
 
 use std::ffi::{OsStr, OsString};
 use std::mem;
+use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::result;
 
@@ -59,7 +60,7 @@ pub use winapi::um::bitsmsg::{BG_S_PARTIAL_COMPLETE, BG_S_UNABLE_TO_DELETE_FILES
 pub use status::{
     BitsErrorContext, BitsJobError, BitsJobProgress, BitsJobState, BitsJobStatus, BitsJobTimes,
 };
-use wide::{FromWidePtrNull, ToWideNull};
+use wide::ToWideNull;
 
 pub use winapi::shared::winerror::E_FAIL;
 
@@ -224,16 +225,16 @@ impl BackgroundCopyManager {
 }
 
 unsafe fn taskmem_into_lossy_string(taskmem: CoTaskMem<u16>) -> String {
-    OsString::from_wide_ptr_null(taskmem.as_raw_ptr())
+    OsString::from_wide(taskmem.as_slice_until_null())
         .to_string_lossy()
         .into_owned()
 }
 
 fn job_name_eq(job: &ComRef<IBackgroundCopyJob>, match_name: &OsStr) -> Result<bool> {
     let job_name = unsafe {
-        OsString::from_wide_ptr_null(
+        OsString::from_wide(
             com_call_taskmem_getter!(|name| job, IBackgroundCopyJob::GetDisplayName(name))?
-                .as_raw_ptr(),
+                .as_slice_until_null(),
         )
     };
 
@@ -524,9 +525,9 @@ impl BitsFile {
     /// updated as HTTP redirects are processed.
     pub fn get_remote_name(&self) -> Result<OsString> {
         unsafe {
-            Ok(OsString::from_wide_ptr_null(
+            Ok(OsString::from_wide(
                 com_call_taskmem_getter!(|name| self.0, IBackgroundCopyFile::GetRemoteName(name))?
-                    .as_raw_ptr(),
+                    .as_slice_until_null(),
             ))
         }
     }
