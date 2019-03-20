@@ -272,10 +272,7 @@ impl BitsJob {
     ///
     /// This is provided for collecting the redirected remote name of single file jobs.
     pub fn get_first_file(&mut self) -> Result<BitsFile> {
-        let files;
-        unsafe {
-            files = com_call_getter!(|e| self.0, IBackgroundCopyJob::EnumFiles(e))?;
-        }
+        let files = unsafe { com_call_getter!(|e| self.0, IBackgroundCopyJob::EnumFiles(e))? };
 
         let file = unsafe {
             com_call_getter!(
