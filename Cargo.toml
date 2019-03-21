@@ -3,11 +3,12 @@ name = "bits_client"
 version = "0.1.0"
 authors = ["Adam Gashlin <agashlin@mozilla.com>"]
 license = "MPL-2.0"
+publish = false
 
 [dependencies]
 bits = { path = "./bits" }
-comedy = "0.1.0-alpha5"
-guid_win = "0.1.0-alpha3"
+comedy = "0.1.0"
+guid_win = "0.1.0"
 
 [dependencies.failure]
 version = "0.1.3"
